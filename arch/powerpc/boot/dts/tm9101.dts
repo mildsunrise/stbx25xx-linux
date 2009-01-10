@@ -1,0 +1,167 @@
+/*
+ * Device Tree Source for Technomate TM9101
+ *
+ * Copyright 2008 Tom3q
+ *
+ *
+ * This file is licensed under the terms of the GNU General Public
+ * License version 2.  This program is licensed "as is" without
+ * any warranty of any kind, whether express or implied.
+ */
+
+/dts-v1/;
+
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+	model = "TM9101";
+	compatible = "ibm,stbx25xx", "technomate,tm9101";
+	dcr-parent = <&{/cpus/cpu@0}>;
+
+	aliases {
+		serial0 = &UART0;
+		serial1 = &UART1;
+		serial2 = &UART2;
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu@0 {
+			device_type = "cpu";
+			model = "PowerPC,STBx25xx";
+			reg = <0x00000000>;
+			clock-frequency = <252000000>; /* Filled in by zImage */
+			timebase-frequency = <27000000>; /* Filled in by zImage */
+			i-cache-line-size = <32>;
+			d-cache-line-size = <32>;
+			i-cache-size = <16384>;
+			d-cache-size = <16384>;
+			dcr-controller;
+			dcr-access-method = "native";
+		};
+	};
+
+	memory {
+		device_type = "memory";
+		reg = <0x00000000 0x04000000>; /* Filled in by zImage */
+	};
+
+	UIC0: interrupt-controller {
+		compatible = "ibm,uic";
+		interrupt-controller;
+		cell-index = <0>;
+		dcr-reg = <0x040 0x009>;
+		#address-cells = <0>;
+		#size-cells = <0>;
+		#interrupt-cells = <2>;
+	};
+
+	plb {
+		compatible = "ibm,plb3";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+		clock-frequency = <63000000>; /* Filled in by zImage */
+
+		POB0: opb {
+			compatible = "ibm,opb-stbx25xx", "ibm,opb";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0x40000000 0x40000000 0x00100000>;
+			dcr-reg = <0x054 0x013 0x0b0 0x003>;
+			clock-frequency = <0>; /* Filled in by zImage */
+
+			UART0: serial@40040000 {
+				device_type = "serial";
+				compatible = "ns16550";
+				reg = <0x40040000 0x00000008>;
+				clock-frequency = <21000000>; /* Filled in by zImage */
+				interrupt-parent = <&UIC0>;
+				interrupts = <20 4>;
+			};
+
+			UART1: serial@40000000 {
+				device_type = "serial";
+				compatible = "ns16550";
+				reg = <0x40000000 0x00000008>;
+				clock-frequency = <21000000>; /* Filled in by zImage */
+				interrupt-parent = <&UIC0>;
+				interrupts = <21 4>;
+			};
+			
+			UART2: serial@40010000 {
+				device_type = "serial";
+				compatible = "ns16550";
+				reg = <0x40010000 0x00000008>;
+				clock-frequency = <21000000>; /* Filled in by zImage */
+				current-speed = <115200>;
+				interrupt-parent = <&UIC0>;
+				interrupts = <22 4>;
+			};
+
+			IIC: i2c@40030000 {
+				compatible = "ibm,iic-stbx25xx", "ibm,iic";
+				reg = <0x40030000 0x00000010>;
+				interrupt-parent = <&UIC0>;
+				interrupts = <9 4>;
+			};
+
+			GPIO: gpio@40060000 {
+				compatible = "ibm,ppc4xx-gpio";
+				reg = <0x40060000 0x00000020>;
+			};
+
+		};
+
+		EBC0: ebc {
+			compatible = "ibm,ebc-stbx25xx", "ibm,ebc";
+			dcr-reg = <0x070 0x02b>;
+			#address-cells = <2>;
+			#size-cells = <1>;
+			/* The ranges property is supplied by the bootwrapper
+			 * and is based on the firmware's configuration of the
+			 * EBC bridge
+			 */
+			clock-frequency = <63000000>; /* Filled in by zImage */
+
+			flash@0,ff000000 {
+				compatible = "spansion,s29gl064m", "cfi-flash";
+				bank-width = <2>;
+				reg = <0x00000000 0xff000000 0x01000000>;
+				#address-cells = <1>;
+				#size-cells = <1>;
+				partition@0 {
+					label = "U-Boot Env";
+					reg = <0x00000000 0x0000e000>;
+				};
+				partition@1 {
+					label = "Splash Image";
+					reg = <0x00010000 0x00020000>;
+				};					
+				partition@2 {
+					label = "Kernel";
+					reg = <0x00030000 0x001d0000>;
+				};
+				partition@3 {
+					label = "RootFS";
+					reg = <0x00200000 0x00dd0000>;
+				};
+				partition@4 {
+					label = "U-Boot";
+					reg = <0x00fd0000 0x00030000>;
+					read-only;
+				};
+				partition@5 { /* Should be @1, but is @5 to be compatible with old images */
+					label = "Device Tree";
+					reg = <0x0000e000 0x00002000>;
+				};
+			};
+		};
+	};
+
+	chosen {
+		linux,stdout-path = "/plb/opb/serial@40010000";
+	};
+};

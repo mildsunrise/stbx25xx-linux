@@ -75,6 +75,95 @@ config MAKALU
 #	help
 #	  This option enables support for the IBM STBx25xx evaluation board.
 
+config TM9100
+	bool "Technomate TM9100 STB"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the Technomate TM9100 STB.
+	  
+config TM9101
+	bool "Technomate TM9101 STB"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the Technomate TM9101 STB.
+	  
+config LX411S
+	bool "Vantage LX411S STB"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the Vantage LX411S STB.
+	  
+config TGS100
+	bool "iTgate TGS100 STB"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the iTgate TGS100 STB.
+	  
+config TGS101
+	bool "iTgate TGS101 STB"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the iTgate TGS101 STB.
+	  
+config TGS110
+	bool "iTgate TGS110 STB"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the iTgate TGS110 STB.
+	  
+config TGS200
+	bool "iTgate TGS200 STB"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the iTgate TGS200 STB.
+	  
+config TGS210
+	bool "iTgate TGS210 STB"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the iTgate TGS210 STB.
+	  
+config TGS220
+	bool "iTgate TGS220 STB"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the iTgate TGS220 STB.
+	  
+config TGS221
+	bool "iTgate TGS221 STB"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the iTgate TGS221 STB.
+	  
+config TGS230
+	bool "iTgate TGS230 STB"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the iTgate TGS230 STB.
+	  
+
 #config SYCAMORE
 #	bool "Sycamore"
 #	depends on 40x
@@ -163,6 +252,11 @@ config XILINX_VIRTEX_II_PRO
 config XILINX_VIRTEX_4_FX
 	bool
 	select XILINX_VIRTEX
+
+config STBx25xx
+	bool
+	select IBM405_ERR77
+	select IBM405_ERR51
 
 config STB03xxx
 	bool

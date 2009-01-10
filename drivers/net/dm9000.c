@@ -19,6 +19,8 @@
  *	Sascha Hauer <s.hauer@pengutronix.de>
  */
 
+#define DEBUG
+
 #include <linux/module.h>
 #include <linux/ioport.h>
 #include <linux/netdevice.h>
@@ -127,10 +129,9 @@ typedef struct board_info {
 } board_info_t;
 
 /* debug code */
-
 #define dm9000_dbg(db, lev, msg...) do {		\
-	if ((lev) < CONFIG_DM9000_DEBUGLEVEL &&		\
-	    (lev) < db->debug_level) {			\
+	if ((lev) < CONFIG_DM9000_DEBUGLEVEL/* &&		\
+	    (lev) < db->debug_level*/) {			\
 		dev_dbg(db->dev, msg);			\
 	}						\
 } while (0)

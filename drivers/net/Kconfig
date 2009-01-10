@@ -919,7 +919,7 @@ config NET_NETX
 
 config DM9000
 	tristate "DM9000 support"
-	depends on ARM || BLACKFIN || MIPS
+	depends on ARM || BLACKFIN || MIPS || STBx25xx
 	select CRC32
 	select MII
 	---help---

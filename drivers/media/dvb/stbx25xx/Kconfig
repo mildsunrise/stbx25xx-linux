@@ -1,0 +1,12 @@
+config DVB_STBx25xx
+	tristate "IBM STBx25xx on-chip DVB subsystem"
+	depends on DVB_CORE && STBx25xx
+	select DVB_STV0288 if !DVB_FE_CUSTOMISE
+	select I2C
+	select I2C_IBM_IIC
+	help
+	  Support for the digital TV receiver hardware included in
+	  IBM STBx25xx System-On-Chip.
+
+	  Say Y if you own such a device and want to use it.
+

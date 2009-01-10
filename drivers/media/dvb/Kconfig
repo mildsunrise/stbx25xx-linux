@@ -38,6 +38,10 @@ comment "Supported SDMC DM1105 Adapters"
 	depends on DVB_CORE && PCI && I2C
 source "drivers/media/dvb/dm1105/Kconfig"
 
+comment "IBM Systems-On-Chip for Set-Top-Boxes"
+	depends on DVB_CORE && STBx25xx
+source "drivers/media/dvb/stbx25xx/Kconfig"
+
 comment "Supported DVB Frontends"
 	depends on DVB_CORE
 source "drivers/media/dvb/frontends/Kconfig"
