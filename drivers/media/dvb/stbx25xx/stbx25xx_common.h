@@ -15,6 +15,18 @@
 #include "dvb_net.h"
 #include "dvb_frontend.h"
 
+#define STBx25xx_MAX_FEED 30
+#define STBx25xx_LOG_PREFIX "dvb-stbx25xx"
+
+/* Stolen from usb.h */
+#undef err
+#define err(format,  arg...) printk(KERN_ERR     STBx25xx_LOG_PREFIX ": " format "\n" , ## arg)
+#undef info
+#define info(format, arg...) printk(KERN_INFO    STBx25xx_LOG_PREFIX ": " format "\n" , ## arg)
+#undef warn
+#define warn(format, arg...) printk(KERN_WARNING STBx25xx_LOG_PREFIX ": " format "\n" , ## arg)
+
+/* STBx25xx DVB device helper structure */
 struct stbx25xx_dvb_dev {
 	/* general */
 	struct device *dev; /* for firmware_class */
@@ -40,5 +52,31 @@ struct stbx25xx_dvb_dev {
 	int extra_feedcount;
 	int feedcount;
 };
+
+/* Function prototypes */
+extern u32 stbx25xx_demux_check_crc32(struct dvb_demux_feed *feed,
+			    const u8 *buf, size_t len);
+extern void stbx25xx_demux_memcopy(struct dvb_demux_feed *feed, u8 *dst,
+			 const u8 *src, size_t len);
+extern int stbx25xx_demux_connect_frontend(struct dmx_demux* demux,
+				 struct dmx_frontend* frontend);
+extern int stbx25xx_demux_disconnect_frontend(struct dmx_demux* demux);
+extern int stbx25xx_demux_get_stc(struct dmx_demux* demux, unsigned int num,
+			u64 *stc, unsigned int *base);
+extern void stbx25xx_demux_before_after_tune(fe_status_t fe_status, void *data);
+extern int stbx25xx_demux_start_feed(struct dvb_demux_feed *feed);
+extern int stbx25xx_demux_stop_feed(struct dvb_demux_feed *feed);
+extern int stbx25xx_demux_write_to_decoder(struct dvb_demux_feed *feed,
+				 const u8 *buf, size_t len);
+ 
+extern int stbx25xx_video_init(struct stbx25xx_dvb_dev *);
+extern int stbx25xx_audio_init(struct stbx25xx_dvb_dev *);
+extern int stbx25xx_demux_init(struct stbx25xx_dvb_dev *);
+extern int stbx25xx_frontend_init(struct stbx25xx_dvb_dev *);
+
+extern void stbx25xx_video_exit(struct stbx25xx_dvb_dev *);
+extern void stbx25xx_audio_exit(struct stbx25xx_dvb_dev *);
+extern void stbx25xx_demux_exit(struct stbx25xx_dvb_dev *);
+extern void stbx25xx_frontend_exit(struct stbx25xx_dvb_dev *);
 
 #endif
