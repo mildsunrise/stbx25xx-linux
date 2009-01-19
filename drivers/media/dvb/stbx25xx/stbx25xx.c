@@ -21,9 +21,6 @@
 #include <linux/platform_device.h>
 #include "stbx25xx.h"
 
-#define DRIVER_NAME "IBM STBx25xx digital TV hardware driver"
-#define DRIVER_AUTHOR "Tomasz Figa <tomasz.figa@gmail.com>"
-
 #ifdef CONFIG_DVB_STBx25xx_DEBUG
 #define DEBSTATUS ""
 #else

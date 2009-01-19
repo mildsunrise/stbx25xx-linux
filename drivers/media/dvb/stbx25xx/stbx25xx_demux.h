@@ -11,6 +11,20 @@
 
 #include "stbx25xx_demux_val.h"
 
+/* Interrupts */
+#define DEMUX_IRQ	1
+
+/* Memory map */
+#define DEMUX_QUEUES_BASE	0x03C00000	/* Allocable region begins at 60 MB */
+#define DEMUX_QUEUES_SIZE	0x00200000	/* Allocable region ends before 62 MB */
+
+#define DEMUX_QUEUE_BLOCK_SIZE	0x00001000	/* 4096 bytes per block */
+#define DEMUX_QUEUE_BLOCK_ALIGN	0x00001000	/* Aligned on 4096 bytes boundary */
+#define DEMUX_QUEUE_BLOCK_MASK	(DEMUX_QUEUE_BLOCK_ALIGN - 1)
+
+#define DEMUX_QUEUE_SEG_MASK	0xFF000000
+
+/* DCR registers */
 #define DEMUX_ADDR	0x180
 #define DEMUX_DATA	0x181
 #define DEMUX_INT	0x182
@@ -112,6 +126,8 @@
 #define SECFLT_POS(block)	(SEC_FILTER_BASE + (4*(block)) + 3)
 
 /* Transport DMA - DCR regs */
+#define TSDMA_IRQ		23
+
 #define TSDMA_CONFIG		0x02c0
 #define TSDMA_START		0x02c1
 #define TSDMA_ADDR		0x02c4
