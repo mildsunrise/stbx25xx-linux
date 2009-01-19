@@ -53,7 +53,7 @@ static struct queues_pool_head qp_head;
 static struct kmem_cache *qp_node_cache;
 static struct semaphore qp_sem;
 
-/* Memory management routines */
+/* queues_pool_free */
 static void queues_pool_free(void *addr, size_t size)
 {
 	struct queues_pool_node *node;
@@ -151,6 +151,7 @@ exit:
 	up(&qp_sem);
 }
 
+/* queues_pool_alloc */
 static void *queues_pool_alloc(size_t size, phys_addr_t *phys_addr_ret)
 {
 	struct queues_pool_node *node;
@@ -208,6 +209,7 @@ exit:
 	return addr;
 }
 
+/* queues_pool_init */
 static int queues_pool_init(phys_addr_t phys, void *virt, size_t size)
 {
 	BUG_ON(!virt);
@@ -237,6 +239,7 @@ static int queues_pool_init(phys_addr_t phys, void *virt, size_t size)
 	return 0;
 }
 
+/* queues_pool_deinit */
 static void queues_pool_deinit(void)
 {
 	int force = 0;
@@ -331,6 +334,10 @@ static inline u32 get_demux_reg_raw(u16 reg)
 	Queue management
 **/
 
+/*
+ * demux_stop_queue()
+ * Stop the chosen queue
+ */
 static void demux_stop_queue(int queue)
 {
 	u32 reg;
@@ -340,6 +347,10 @@ static void demux_stop_queue(int queue)
 	set_demux_reg_raw(QSTOPS, reg);
 }
 
+/*
+ * demux_reset_queue()
+ * Reset the chosen queue
+ */
 static void demux_reset_queue(int queue)
 {
 	u32 reg;
@@ -552,9 +563,36 @@ static int demux_reset(void)
 	return 0;
 }
 
+/*
+ * demux_set_queues_base_ptr()
+ * Set the physical base address of the 16 MB queues region
+ */
 static void demux_set_queues_base_ptr(phys_addr_t addr)
 {
 	set_demux_reg_raw(QBASE, addr & DEMUX_QUEUE_SEG_MASK);
+}
+
+/*
+ * demux_change_input()
+ * Switch between CI0 and TSDMA inputs. Sync Enable bit state is preserved.
+ */
+static void demux_change_input(u32 input)
+{
+	stbx25xx_demux_val reg;
+	u32 sync_enabled;
+	
+	reg = get_demux_reg(CONTROL1);
+	sync_enabled = reg.control1.se;
+	reg.control1.se = 0;
+	set_demux_reg(CONTROL1, reg);
+	
+	reg = get_demux_reg(CONFIG3);
+	reg.config3.insel = input & 3;
+	set_demux_reg(CONFIG3, reg);
+	
+	reg = get_demux_reg(CONTROL1);
+	reg.control1.se = sync_enabled & 1;
+	set_demux_reg(CONTROL1, reg);	
 }
 
 /*
