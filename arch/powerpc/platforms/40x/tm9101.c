@@ -97,7 +97,6 @@ static struct dm9000_plat_data tm9101_dm9000_pdata = {
 
 static struct platform_device dm9000_device = {
 	.name		= "dm9000",
-	.id		= 1,
 	.num_resources  = ARRAY_SIZE(dm9000_resources),
 	.resource	= dm9000_resources,
 	.dev		= {	
@@ -105,8 +104,13 @@ static struct platform_device dm9000_device = {
 	},
 };
 
+static struct platform_device dvb_device = {
+	.name		= "dvb-stbx25xx",
+};
+
 static struct platform_device *tm9101_devs[] __initdata = {
 	&dm9000_device,
+	&dvb_device,
 };
 
 static int __init tm9101_device_probe(void)

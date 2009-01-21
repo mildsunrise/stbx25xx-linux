@@ -18,11 +18,15 @@
 #define DEMUX_QUEUES_BASE	0x03C00000	/* Allocable region begins at 60 MB */
 #define DEMUX_QUEUES_SIZE	0x00200000	/* Allocable region ends before 62 MB */
 
-#define DEMUX_QUEUE_BLOCK_SIZE	0x00001000	/* 4096 bytes per block */
-#define DEMUX_QUEUE_BLOCK_ALIGN	0x00001000	/* Aligned on 4096 bytes boundary */
+#define DEMUX_QUEUE_BLOCK_SHFT	12
+#define DEMUX_QUEUE_BLOCK_SIZE	(1 << 12)	/* 4096 bytes per block */
+#define DEMUX_QUEUE_BLOCK_ALIGN	(1 << 12)	/* Aligned on 4096 bytes boundary */
 #define DEMUX_QUEUE_BLOCK_MASK	(DEMUX_QUEUE_BLOCK_ALIGN - 1)
 
 #define DEMUX_QUEUE_SEG_MASK	0xFF000000
+
+#define DEMUX_AUDIO_QUEUE	30
+#define DEMUX_VIDEO_QUEUE	31
 
 /* DCR registers */
 #define DEMUX_ADDR	0x180
@@ -54,10 +58,9 @@
 #define DSIMASK		0x0049
 
 /* TS Header Mask */
-#define TSHM24		0x0138
-#define TSHM25		0x0139
-#define TSHM26		0x013a
-#define TSHM27		0x013b
+#define TSHM_FIRST_ID	24
+#define TSHM_BASE	0x0138
+#define TSHM(id)	(TSHM_BASE + (id - 24))
 
 /* Additional PID */
 #define VCCHNG		0x01f0

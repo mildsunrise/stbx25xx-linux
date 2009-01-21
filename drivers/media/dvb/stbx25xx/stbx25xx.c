@@ -36,6 +36,10 @@ struct stbx25xx_dvb_dev stbx25xx_dvb_dev = {
 	.owner		= THIS_MODULE,
 };
 
+extern int (*dvbdmx_disconnect_frontend)(struct dmx_demux *demux);
+extern int (*dvbdmx_connect_frontend)(struct dmx_demux *demux,
+				   struct dmx_frontend *frontend);
+
 static int stbx25xx_dvb_init(struct stbx25xx_dvb_dev *dev)
 {
 	short num[1] = {-1};
@@ -48,7 +52,7 @@ static int stbx25xx_dvb_init(struct stbx25xx_dvb_dev *dev)
 	}
 	dev->dvb_adapter.priv = dev;
 
-	dev->demux.dmx.capabilities = (DMX_TS_FILTERING | DMX_PES_FILTERING | DMX_SECTION_FILTERING | DMX_MEMORY_BASED_FILTERING | DMX_CRC_CHECKING | DMX_TS_DESCRAMBLING);
+	dev->demux.dmx.capabilities = (DMX_TS_FILTERING | DMX_PES_FILTERING | DMX_SECTION_FILTERING | DMX_MEMORY_BASED_FILTERING | DMX_TS_DESCRAMBLING);
 	dev->demux.priv = dev;
 
 	dev->demux.filternum = STBx25xx_MAX_FEED;
@@ -57,8 +61,6 @@ static int stbx25xx_dvb_init(struct stbx25xx_dvb_dev *dev)
 	dev->demux.start_feed = stbx25xx_demux_start_feed;
 	dev->demux.stop_feed = stbx25xx_demux_stop_feed;
 	dev->demux.write_to_decoder = stbx25xx_demux_write_to_decoder;
-	dev->demux.check_crc32 = stbx25xx_demux_check_crc32;
-	dev->demux.memcopy = stbx25xx_demux_memcopy;
 
 	if ((ret = dvb_dmx_init(&dev->demux)) < 0) {
 		err("dvb_dmx failed: error %d",ret);
@@ -66,7 +68,9 @@ static int stbx25xx_dvb_init(struct stbx25xx_dvb_dev *dev)
 	}
 	
 	// set overrides for clipmode
+	dvbdmx_connect_frontend = dev->demux.dmx.connect_frontend;
 	dev->demux.dmx.connect_frontend = stbx25xx_demux_connect_frontend;
+	dvbdmx_disconnect_frontend = dev->demux.dmx.disconnect_frontend;
 	dev->demux.dmx.disconnect_frontend = stbx25xx_demux_disconnect_frontend;
 	dev->demux.dmx.get_stc = stbx25xx_demux_get_stc;
 
@@ -85,11 +89,13 @@ static int stbx25xx_dvb_init(struct stbx25xx_dvb_dev *dev)
 		goto err_dmx_add_hw_frontend;
 	}
 
+/*
 	dev->mem_frontend.source = DMX_MEMORY_FE;
 	if ((ret = dev->demux.dmx.add_frontend(&dev->demux.dmx, &dev->mem_frontend)) < 0) {
 		err("adding mem_frontend to dmx failed: error %d",ret);
 		goto err_dmx_add_mem_frontend;
 	}
+*/
 
 	if ((ret = dev->demux.dmx.connect_frontend(&dev->demux.dmx, &dev->hw_frontend)) < 0) {
 		err("connect frontend failed: error %d",ret);
