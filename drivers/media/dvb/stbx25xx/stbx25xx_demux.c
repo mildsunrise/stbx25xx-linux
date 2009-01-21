@@ -464,14 +464,11 @@ struct demux_queue {
 #define QUEUE_CONFIG_ACTIVE	(1 << 15)
 	u16 config;
 	struct semaphore sem;
-};
-
-struct queue_handle {
 	u32 handle;
+	struct dvb_demux_feed *feed;
 };
 
 static struct demux_queue demux_queues[STBx25xx_QUEUE_COUNT];
-static struct queue_handle queue_handles[STBx25xx_QUEUE_COUNT];
 
 /*
  * demux_set_queues_base_ptr()
@@ -705,11 +702,11 @@ static int demux_install_system_queue(int queue, u32 pid, u32 blocks, u16 config
  * demux_install_queue()
  * Install queue receiving data from selected PID
  */
-static int demux_install_user_queue(u32 pid, u32 blocks, u16 config, u16 key)
+static int demux_install_user_queue(struct dvb_demux_feed *feed, u32 blocks, u16 config, u16 key)
 {
 	int queue, ret;
 	
-	if(pid & ~0x1FFF)
+	if(feed->pid & ~0x1FFF)
 		return -EINVAL;
 	
 	if(key > 7)
@@ -730,9 +727,11 @@ static int demux_install_user_queue(u32 pid, u32 blocks, u16 config, u16 key)
 	if(queue >= STBx25xx_QUEUE_COUNT)
 		return -EBUSY;
 	
+	demux_queues[queue].feed = feed;
+	
 	up(&demux_queues[queue].sem);
 	
-	if((ret = demux_install_queue(queue, pid, blocks, config, key)) != 0)
+	if((ret = demux_install_queue(queue, feed->pid, blocks, config, key)) != 0)
 		return ret;
 	
 	return queue;
@@ -791,7 +790,7 @@ static int demux_queues_init(void)
 	
 	for(i=0; i<STBx25xx_QUEUE_COUNT; i++) {
 		sema_init(&demux_queues[i].sem, 1);
-		queue_handles[i].handle = i;
+		demux_queues[i].handle = i;
 	}
 	
 	if((ret = queues_pool_init(DEMUX_QUEUES_BASE, queues_base, DEMUX_QUEUES_SIZE)) != 0)
@@ -1052,15 +1051,22 @@ static u32 demux_festat_irq_mask;
 static u32 demux_audio_irq_mask;
 static u32 demux_video_irq_mask;
 static u32 demux_descr_irq_mask;
+spinlock_t demux_irq_lock;
 
 typedef void (*demux_irq_handler_t)(struct stbx25xx_dvb_dev *dvb);
 static demux_irq_handler_t irq_handler_table[STBx25xx_DEMUX1_IRQ_COUNT];
 
+/*
+ * IRQ HANDLER
+ * demux_irq_handler()
+ *
+ * Main IRQ handler calling all 2nd level handlers if needed
+ */
 static irqreturn_t demux_irq_handler(int irq, void *dev_id)
 {
 	int i;
 	struct stbx25xx_dvb_dev *dvb = dev_id;
-	u32 first_stat = mfdcr(DEMUX_INT) & demux_irq_mask;	/* AND with mask to be safe... */
+	u32 first_stat = mfdcr(DEMUX_INT) & demux_irq_mask;	/* AND with the mask to be safe... */
 	mtdcr(DEMUX_INT, first_stat);				/* Clear instantly to minimize interrupt loss */
 	
 	for(i = 0; i < STBx25xx_DEMUX1_IRQ_COUNT && first_stat; i++, first_stat <<= 1) {
@@ -1071,9 +1077,120 @@ static irqreturn_t demux_irq_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * IRQ HANDLER
+ * demux_frontend_irq_handler()
+ *
+ * Handles (will handle) following interrupts:
+ * Sync Locked, Sync Lost, TS Header Error, Missing Sync, Packet Buffer Overflow,
+ * Transport Stream Error, Video Packet Overflow, Audio Packet Overflow, Queue Packet Overflow,
+ * Multiple PID Filter Matches, First PCR
+ */
+static void demux_frontend_irq_handler(struct stbx25xx_dvb_dev *dvb)
+{
+	stbx25xx_demux_val reg;
+	
+	reg = get_demux_reg(FESTAT);
+	reg.raw &= demux_festat_irq_mask;
+	set_demux_reg(FESTAT, reg);
+	
+	if(reg.festat.slock)
+		info("Sync Locked!");
+	
+	if(reg.festat.slost)
+		info("Sync Lost!");
+	
+	if(reg.festat.fpcr)
+		info("First PCR received!");
+}
+
+/*
+ * IRQ HANDLER
+ * demux_plb_err_handler()
+ *
+ * Handles memory errors (what will hopefully never happen)
+ */
+static void demux_plb_err_handler(struct stbx25xx_dvb_dev *dvb)
+{
+	warn("Demux PLB Error!");
+}
+
+/*
+ * IRQ HANDLER
+ * demux_queues_irq_handler()
+ *
+ * Handles interrupts of all queues
+ */
+static void demux_queues_irq_handler(struct stbx25xx_dvb_dev *dvb)
+{
+	int i;
+	u32 reg;
+	u32 mask = get_demux_reg_raw(QINT) & demux_queues_irq_mask;
+	set_demux_reg_raw(QINT, mask);
+	
+	for(i=STBx25xx_QUEUE_COUNT-1; i>=0 && mask; i--, mask>>=1) {
+		if(mask & 1) {
+			reg = get_demux_reg_raw(QSTATA(i));
+			set_demux_reg_raw(QSTATA(i), reg);
+			info("Queue %d needs attention, status = 0x%08x", i, reg);
+		}
+	}
+}
+
+static void demux_enable_irq(int demux_irq)
+{
+	unsigned long flags;
+	
+	if(demux_irq >= STBx25xx_DEMUX1_IRQ_COUNT || demux_irq < 0)
+		return;
+
+	spin_lock_irqsave(&demux_irq_lock, flags);
+	
+	if(!irq_handler_table[demux_irq]) {
+		err("demux_enable_irq: Tried to enable a demux IRQ %d, which does not have a handler", demux_irq);
+		goto exit;
+	}
+	
+	demux_irq_mask |= (1 << 31) >> demux_irq;
+	set_demux_reg_raw(INTMASK, demux_irq_mask);
+	
+exit:
+	spin_unlock_irqrestore(&demux_irq_lock, flags);
+}
+
+static void demux_disable_irq(int demux_irq)
+{
+	unsigned long flags;
+	
+	if(demux_irq >= STBx25xx_DEMUX1_IRQ_COUNT || demux_irq < 0)
+		return;
+
+	spin_lock_irqsave(&demux_irq_lock, flags);
+		
+	demux_irq_mask &= ~((1 << 31) >> demux_irq);
+	set_demux_reg_raw(INTMASK, demux_irq_mask);
+	
+	spin_unlock_irqrestore(&demux_irq_lock, flags);
+}
+
+static void demux_set_handler(int demux_irq, demux_irq_handler_t demux_handler)
+{
+	if(demux_irq >= STBx25xx_DEMUX1_IRQ_COUNT || demux_irq < 0)
+		return;
+	
+	if(irq_handler_table[demux_irq] && demux_handler)
+		warn("demux_set_handler: Replacing old handler of demux IRQ %d", demux_irq);
+	
+	irq_handler_table[demux_irq] = demux_handler;
+}
+
 static int demux_irq_init(struct stbx25xx_dvb_dev *dvb)
 {
+	int ret = 0;
+	
 	memset(irq_handler_table, 0, sizeof(demux_irq_handler_t) * STBx25xx_DEMUX1_IRQ_COUNT);
+	
+	spin_lock_init(&demux_irq_lock);
 	
 	demux_irq_mask		= 0;
 	demux_queues_irq_mask	= 0;
@@ -1089,7 +1206,19 @@ static int demux_irq_init(struct stbx25xx_dvb_dev *dvb)
 	set_demux_reg_raw(VINTMSK, demux_video_irq_mask);
 	set_demux_reg_raw(DSIMASK, demux_descr_irq_mask);
 	
-	return request_irq(DEMUX_IRQ, demux_irq_handler, IRQF_SHARED, DRIVER_NAME, dvb);
+	if((ret = request_irq(DEMUX_IRQ, demux_irq_handler, IRQF_SHARED, DRIVER_NAME, dvb)) != 0) {
+		err("Failed to request demux irq: error %d", ret);
+		return ret;
+	}
+	
+	demux_set_handler(DEMUX_IRQ_FRONTEND, demux_frontend_irq_handler);
+	demux_enable_irq(DEMUX_IRQ_FRONTEND);
+	
+	demux_set_handler(DEMUX_IRQ_QUEUES, demux_queues_irq_handler);
+	demux_enable_irq(DEMUX_IRQ_QUEUES);
+	
+	demux_set_handler(DEMUX_IRQ_PLB_ERR, demux_plb_err_handler);
+	demux_enable_irq(DEMUX_IRQ_PLB_ERR);
 }
 
 /*
@@ -1202,10 +1331,10 @@ int stbx25xx_demux_start_feed(struct dvb_demux_feed *feed)
 		config = QCFG_DT_PAYLOAD | QUEUE_CONFIG_APUS;
 	}
 	
-	if((queue = demux_install_user_queue(feed->pid, 16, config, 0)) < 0)
+	if((queue = demux_install_user_queue(feed, 16, config, 0)) < 0)
 		return queue;
 	
-	feed->priv = &queue_handles[queue];
+	feed->priv = &demux_queues[queue];
 	
 	return 0;
 }
@@ -1233,7 +1362,7 @@ int stbx25xx_demux_stop_feed(struct dvb_demux_feed *feed)
 	}
 	
 	if(feed->priv)
-		demux_remove_queue(((struct queue_handle*)(feed->priv))->handle);
+		demux_remove_queue(((struct demux_queue*)(feed->priv))->handle);
 	
 	return 0;
 }
@@ -1272,10 +1401,8 @@ int stbx25xx_demux_init(struct stbx25xx_dvb_dev *dvb)
 	info("Mapped %d bytes of demux memory at 0x%p", DEMUX_QUEUES_SIZE, queues_base);
 
 	/* Disable all interrupts */
-	if((ret = demux_irq_init(dvb)) != 0) {
-		err("Failed to request demux irq: error %d", ret);
+	if((ret = demux_irq_init(dvb)) != 0)
 		goto error_irq;
-	}
 	
 	if((ret = demux_queues_init()) != 0)
 		goto error_queues;

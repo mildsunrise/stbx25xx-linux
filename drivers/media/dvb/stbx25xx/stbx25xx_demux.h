@@ -12,7 +12,21 @@
 #include "stbx25xx_demux_val.h"
 
 /* Interrupts */
-#define DEMUX_IRQ	1
+#define DEMUX_IRQ		1
+
+#define DEMUX_IRQ_FRONTEND	0
+#define DEMUX_IRQ_QUEUES	1
+#define DEMUX_IRQ_AUDIO		2
+#define DEMUX_IRQ_VIDEO		3
+#define DEMUX_IRQ_STC		5
+#define DEMUX_IRQ_PCR		6
+#define DEMUX_IRQ_STC_COMP	7
+#define DEMUX_IRQ_PLB_ERR	8
+#define DEMUX_IRQ_ACCHNG_DONE	10
+#define DEMUX_IRQ_VCCHNG_DONE	11
+#define DEMUX_IRQ_SEC_FLT_ERR	12
+#define DEMUX_IRQ_DESCRAMBLER	13
+#define DEMUX_IRQ_STR_FOUND	14
 
 /* Memory map */
 #define DEMUX_QUEUES_BASE	0x03C00000	/* Allocable region begins at 60 MB */
