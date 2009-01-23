@@ -102,7 +102,7 @@
 			};
 
 			IIC: i2c@40030000 {
-				compatible = "ibm,iic-stbx25xx", "ibm,iic";
+				compatible = "ibm,iic-stbx25xx";
 				reg = <0x40030000 0x00000010>;
 				interrupt-parent = <&UIC0>;
 				interrupts = <9 4>;
@@ -111,6 +111,12 @@
 			GPIO: gpio@40060000 {
 				compatible = "ibm,ppc4xx-gpio";
 				reg = <0x40060000 0x00000020>;
+			};
+			
+			dvb@0 {
+				compatible = "ibm,stbx25xx-dvb";
+				interrupt-parent = <&UIC0>;
+				interrupts = <1 4 2 4 3 4 23 4>;
 			};
 
 		};
@@ -157,6 +163,12 @@
 					label = "Device Tree";
 					reg = <0x0000e000 0x00002000>;
 				};
+			};
+
+			dm9000@0,f2000000 {
+				compatible = "davicom,dm9000";
+				interrupt-parent = <&UIC0>;
+				interrupts = <26 8>;
 			};
 		};
 	};

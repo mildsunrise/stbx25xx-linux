@@ -18,8 +18,10 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-#include <linux/platform_device.h>
+#include <linux/gpio.h>
+#include <linux/of_platform.h>
 #include "stbx25xx.h"
+
 
 #ifdef CONFIG_DVB_STBx25xx_DEBUG
 #define DEBSTATUS ""
@@ -148,14 +150,39 @@ static void stbx25xx_dvb_exit(struct stbx25xx_dvb_dev *dev)
 	dev->init_state &= ~FC_STATE_DVB_INIT;
 }
 
-static int stbx25xx_adapter_probe(struct platform_device *dev)
+static int stbx25xx_dvb_map_irqs(struct of_device *ofdev, struct stbx25xx_dvb_dev *dvb)
+{
+	struct device_node *np = ofdev->node;
+	int irq, i;
+
+	for(i=0; i<4; i++) {
+		irq = irq_of_parse_and_map(np, i);
+		if (irq == NO_IRQ) {
+			dev_err(&ofdev->dev, "irq_of_parse_and_map failed\n");
+			return NO_IRQ;
+		}
+		dvb->irq_num[i] = irq;
+	}
+
+	return 0;
+}
+
+
+static int stbx25xx_adapter_probe(struct of_device *dev, const struct of_device_id *match)
 {
 	int ret;
 	struct stbx25xx_dvb_dev *dvb_dev = &stbx25xx_dvb_dev;
+	
+	gpio_direction_output(253, 0);
 
 	platform_set_drvdata(dev, dvb_dev);
 	
 	dvb_dev->dev = &dev->dev;
+	
+	if ((ret = stbx25xx_dvb_map_irqs(dev, dvb_dev)) != 0) {
+		err("IRQ mapping failed: error %d", ret);
+		goto video_error;
+	}
 	
 	if ((ret = stbx25xx_video_init(dvb_dev))) {
 		err("Video initiailzation failed: error %d", ret);
@@ -198,7 +225,7 @@ video_error:
 	return ret;
 }
 
-static int stbx25xx_adapter_remove(struct platform_device *dev)
+static int stbx25xx_adapter_remove(struct of_device *dev)
 {
 	struct stbx25xx_dvb_dev *dvb_dev = platform_get_drvdata(dev);
 	
@@ -211,25 +238,30 @@ static int stbx25xx_adapter_remove(struct platform_device *dev)
 	return 0;
 }
 
-static struct platform_driver stbx25xx_dvb_driver = {
+static struct of_device_id stbx25xx_adapter_matches[] = {
+	{ .compatible	= "ibm,stbx25xx-dvb", },
+	{},
+};
+
+static struct of_platform_driver stbx25xx_dvb_driver = {
+	.match_table	= stbx25xx_adapter_matches,
 	.probe		= stbx25xx_adapter_probe,
 	.remove		= stbx25xx_adapter_remove,
 	.driver		= {
-		.name		= "dvb-stbx25xx",
+		.name		= "stbx25xx-dvb",
 	},
 };
 
-
 static int stbx25xx_adapter_module_init(void)
 {
-	platform_driver_register(&stbx25xx_dvb_driver);
+	of_register_platform_driver(&stbx25xx_dvb_driver);
 	info(DRIVER_NAME " loaded successfully");
 	return 0;
 }
 
 static void stbx25xx_adapter_module_cleanup(void)
 {
-	platform_driver_unregister(&stbx25xx_dvb_driver);
+	of_unregister_platform_driver(&stbx25xx_dvb_driver);
 	info(DRIVER_NAME " unloaded successfully");
 }
 

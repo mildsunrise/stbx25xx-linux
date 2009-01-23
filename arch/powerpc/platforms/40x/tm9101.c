@@ -36,17 +36,15 @@ static __initdata struct of_device_id tm9101_of_bus[] = {
 	{},
 };
 
-/* TODO: Find better solution for handling 1 byte-wide accesses.
- * Dirty hack is used temporarily for Big Endian <=> Little Endian conversion */
 static struct resource dm9000_resources[] = {
 	[0] = {
-		.start	= DM9000_MEM_ADDR + 1,
-		.end	= DM9000_MEM_ADDR + 1,
+		.start	= DM9000_MEM_ADDR,
+		.end	= DM9000_MEM_ADDR + 3,
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= DM9000_MEM_DATA + 1,
-		.end	= DM9000_MEM_DATA + 1,
+		.start	= DM9000_MEM_DATA,
+		.end	= DM9000_MEM_DATA + 3,
 		.flags	= IORESOURCE_MEM,
 	},
 	[2] = {
@@ -56,11 +54,14 @@ static struct resource dm9000_resources[] = {
 	},
 };
 
+/* TODO: Use DMA in outblk and inblk */
 /* Manually byte-swap data on 16-bit reads */
 static void tm9101_dm9000_outblk(void __iomem *reg, void *buf, int count)
 {
-	volatile u16 __iomem *port = reg - 1;
+	volatile u16 __iomem *port = reg;
 	const u16 *tbuf = buf;
+	
+	count = (count+1) >> 1;
 
         if (unlikely(count <= 0))
                 return;
@@ -74,9 +75,11 @@ static void tm9101_dm9000_outblk(void __iomem *reg, void *buf, int count)
 /* Manually byte-swap data on 16-bit writes */
 static void tm9101_dm9000_inblk(void __iomem *reg, void *buf, int count)
 {
-	const volatile u16 __iomem *port = reg - 1;
+	const volatile u16 __iomem *port = reg;
         u16 *tbuf = buf;
         u16 tmp;
+	
+	count = (count+1) >> 1;
 
         if (unlikely(count <= 0))
                 return;
@@ -104,20 +107,36 @@ static struct platform_device dm9000_device = {
 	},
 };
 
-static struct platform_device dvb_device = {
-	.name		= "dvb-stbx25xx",
-};
-
 static struct platform_device *tm9101_devs[] __initdata = {
 	&dm9000_device,
-	&dvb_device,
 };
 
 static int __init tm9101_device_probe(void)
 {
-	of_platform_bus_probe(NULL, tm9101_of_bus, NULL);
-	platform_add_devices(tm9101_devs, ARRAY_SIZE(tm9101_devs));
+	struct device_node *np;
+	int irq;
 
+	of_platform_bus_probe(NULL, tm9101_of_bus, NULL);
+	
+	np = of_find_compatible_node(NULL, NULL, "davicom,dm9000");
+	if (np == NULL) {
+		printk(KERN_ERR __FILE__ ": Unable to find DM9000\n");
+		goto exit;
+	}
+
+	irq = irq_of_parse_and_map(np, 0);
+	of_node_put(np);
+	if (irq  == NO_IRQ) {
+		printk(KERN_ERR __FILE__ ": Unable to get DM9000 irq\n");
+		goto exit;
+	}
+	
+	dm9000_resources[2].start	= irq;
+	dm9000_resources[2].end		= irq;
+	
+	platform_add_devices(tm9101_devs, ARRAY_SIZE(tm9101_devs));
+	
+exit:
 	return 0;
 }
 machine_device_initcall(tm9101, tm9101_device_probe);

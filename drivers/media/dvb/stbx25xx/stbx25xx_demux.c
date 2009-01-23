@@ -629,11 +629,6 @@ static void demux_remove_queue_pid(u32 pid)
 static int demux_install_queue(int queue, u32 pid, u32 blocks, u16 config, u16 key)
 {
 	int ret;
-	
-	if(down_killable(&demux_queues[queue].sem)) {
-			err("demux_install_queue: Received a fatal signal, exiting...\n");
-			return -EAGAIN;
-	}
 		
 	if(demux_queues[queue].size) {
 		ret = -EBUSY;
@@ -665,8 +660,6 @@ static int demux_install_queue(int queue, u32 pid, u32 blocks, u16 config, u16 k
 	return 0;
 	
 exit:
-	up(&demux_queues[queue].sem);
-	
 	return ret;
 }
 
@@ -698,10 +691,6 @@ static int demux_install_system_queue(int queue, u32 pid, u32 blocks, u16 config
 	return ret;
 }
 
-/*
- * demux_install_queue()
- * Install queue receiving data from selected PID
- */
 static int demux_install_user_queue(struct dvb_demux_feed *feed, u32 blocks, u16 config, u16 key)
 {
 	int queue, ret;
@@ -729,12 +718,11 @@ static int demux_install_user_queue(struct dvb_demux_feed *feed, u32 blocks, u16
 	
 	demux_queues[queue].feed = feed;
 	
+	ret = demux_install_queue(queue, feed->pid, blocks, config, key);
+	
 	up(&demux_queues[queue].sem);
 	
-	if((ret = demux_install_queue(queue, feed->pid, blocks, config, key)) != 0)
-		return ret;
-	
-	return queue;
+	return ((ret) ? ret : queue);
 }
 
 /*
@@ -1206,7 +1194,7 @@ static int demux_irq_init(struct stbx25xx_dvb_dev *dvb)
 	set_demux_reg_raw(VINTMSK, demux_video_irq_mask);
 	set_demux_reg_raw(DSIMASK, demux_descr_irq_mask);
 	
-	if((ret = request_irq(DEMUX_IRQ, demux_irq_handler, IRQF_SHARED, DRIVER_NAME, dvb)) != 0) {
+	if((ret = request_irq(dvb->irq_num[STBx25xx_IRQ_DEMUX], demux_irq_handler, IRQF_SHARED | IRQF_TRIGGER_HIGH, "demux", dvb)) != 0) {
 		err("Failed to request demux irq: error %d", ret);
 		return ret;
 	}
@@ -1219,6 +1207,8 @@ static int demux_irq_init(struct stbx25xx_dvb_dev *dvb)
 	
 	demux_set_handler(DEMUX_IRQ_PLB_ERR, demux_plb_err_handler);
 	demux_enable_irq(DEMUX_IRQ_PLB_ERR);
+	
+	return 0;
 }
 
 /*
@@ -1404,8 +1394,10 @@ int stbx25xx_demux_init(struct stbx25xx_dvb_dev *dvb)
 	if((ret = demux_irq_init(dvb)) != 0)
 		goto error_irq;
 	
-	if((ret = demux_queues_init()) != 0)
+	if((ret = demux_queues_init()) != 0) {
+		err("Failed to initialize transport queues");
 		goto error_queues;
+	}
 
 	demux_clk_mgmt_init();
 	
@@ -1414,7 +1406,7 @@ int stbx25xx_demux_init(struct stbx25xx_dvb_dev *dvb)
 	return 0;
 	
 error_queues:
-	free_irq(DEMUX_IRQ, dvb);
+	free_irq(dvb->irq_num[STBx25xx_IRQ_DEMUX], dvb);
 error_irq:
 	iounmap(queues_base);
 	queues_base = NULL;
@@ -1431,7 +1423,7 @@ void stbx25xx_demux_exit(struct stbx25xx_dvb_dev *dvb)
 	demux_clk_mgmt_deinit();	
 	demux_queues_deinit();
 	
-	free_irq(DEMUX_IRQ, dvb);
+	free_irq(dvb->irq_num[STBx25xx_IRQ_DEMUX], dvb);
 	
 	if(queues_base)
 		iounmap(queues_base);

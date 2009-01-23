@@ -22,6 +22,7 @@
 #define FP_DCR(n)		(0x314 + (n))
 
 #ifndef __ASSEMBLY__
+#include <asm/dcr.h>
 #define FP_PUT(n,x)		mtdcr(FP_DCR((n)), ((x) << 16));
 #else
 #define FP_PUT(n,x)		lis	r9, x; \

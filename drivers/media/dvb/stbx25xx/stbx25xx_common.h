@@ -35,6 +35,13 @@
 struct stbx25xx_dvb_dev {
 	/* general */
 	struct device *dev; /* for firmware_class */
+	
+	/* interrupts */
+#define STBx25xx_IRQ_DEMUX	0
+#define STBx25xx_IRQ_AUDIO	1
+#define STBx25xx_IRQ_VIDEO	2
+#define STBx25xx_IRQ_TSDMA	3
+	int irq_num[4];
 
 #define FC_STATE_DVB_INIT 0x01
 #define FC_STATE_I2C_INIT 0x02
@@ -42,6 +49,7 @@ struct stbx25xx_dvb_dev {
 	int init_state;
 
 	/* dvb stuff */
+	struct i2c_adapter *i2c;
 	struct dvb_adapter dvb_adapter;
 	struct dvb_frontend *fe;
 	struct dvb_net dvbnet;

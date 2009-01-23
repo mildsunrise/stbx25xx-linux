@@ -3,7 +3,7 @@ config DVB_STBx25xx
 	depends on DVB_CORE && STBx25xx
 	select DVB_STV0288 if !DVB_FE_CUSTOMISE
 	select I2C
-	select I2C_IBM_IIC
+	select I2C_STBx25xx
 	help
 	  Support for the digital TV receiver hardware included in
 	  IBM STBx25xx System-On-Chip.

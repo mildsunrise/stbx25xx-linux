@@ -19,8 +19,6 @@
  *	Sascha Hauer <s.hauer@pengutronix.de>
  */
 
-#define DEBUG
-
 #include <linux/module.h>
 #include <linux/ioport.h>
 #include <linux/netdevice.h>
@@ -135,6 +133,13 @@ typedef struct board_info {
 		dev_dbg(db->dev, msg);			\
 	}						\
 } while (0)
+
+#ifdef CONFIG_STBx25xx
+#undef writeb
+#define writeb(a,b)	out_be16(b, a & 0xFF)
+#undef readb
+#define readb(a)	((u8)in_be16(a))
+#endif
 
 static inline board_info_t *to_dm9000_board(struct net_device *dev)
 {
