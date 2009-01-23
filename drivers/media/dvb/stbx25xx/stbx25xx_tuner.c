@@ -21,7 +21,7 @@
 
 #include "stbx25xx_common.h"
 #include "stv0288.h"
-#include "stb6000.h"
+#include "ix2476.h"
 #include <linux/i2c.h>
 #include <linux/gpio.h>
 
@@ -79,7 +79,7 @@ int stbx25xx_frontend_init(struct stbx25xx_dvb_dev *dvb)
 		dvb->fe = dvb_attach(stv0288_attach, &tm9101_config, dvb->i2c);
 		if (dvb->fe) {
 			dvb->fe->ops.set_voltage = tm9101_set_voltage;
-			dvb_attach(stb6000_attach, dvb->fe, 0x60,
+			dvb_attach(ix2476_attach, dvb->fe, 0x60,
 					dvb->i2c);
 		}
 	}

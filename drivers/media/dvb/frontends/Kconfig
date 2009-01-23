@@ -56,6 +56,13 @@ config DVB_STB6000
 	default m if DVB_FE_CUSTOMISE
 	  help
 	  A DVB-S silicon tuner module. Say Y when you want to support this tuner.
+	  
+config DVB_IX2476
+	tristate "Sharp IX2476 PLL"
+	depends on DVB_CORE && I2C
+	default m if DVB_FE_CUSTOMISE
+	  help
+	  A DVB-S PLL chip. Say Y when you want to support this chip.
 
 config DVB_STV0299
 	tristate "ST STV0299 based"
