@@ -54,5 +54,6 @@ obj-$(CONFIG_DVB_AF9013) += af9013.o
 obj-$(CONFIG_DVB_CX24116) += cx24116.o
 obj-$(CONFIG_DVB_SI21XX) += si21xx.o
 obj-$(CONFIG_DVB_STV0288) += stv0288.o
+obj-$(CONFIG_DVB_STx0288) += stx0288.o
 obj-$(CONFIG_DVB_STB6000) += stb6000.o
 obj-$(CONFIG_DVB_IX2476) += ix2476.o

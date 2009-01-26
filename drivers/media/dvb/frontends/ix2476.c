@@ -38,47 +38,40 @@ struct ix2476_priv {
 	int i2c_address;
 	struct i2c_adapter *i2c;
 	u32 frequency;
+	u8 regs[4];
 };
 
 static u32 calculate_pll_lpf_cutoff(u32 baud)
 {
-	if ( baud>=40000 )
-		return 34000;//LPF=34MHz
-		
-	if ( (40000>baud) && (baud>=39000) )
-		return 30000;//LPF=30MHz
-		
-	if ( (39000>baud) && (baud>=35000) )       
-		return 28000;//LPF=28MHz
-		
-	if ( (35000>baud) && (baud>=30000) )       
-		return 26000;//LPF=26MHz
-		
-	if ( (30000>baud) && (baud>=26000) )       
-		return 24000;//LPF=24MHz
-		
-	if ( (26000>baud) && (baud>=23000) )       
-		return 22000;//LPF=22MHz
-		
-	if ( (23000>baud) && (baud>=21000) )       
-		return 20000;//LPF=20MHz
-		
-	if ( (21000>baud) && (baud>=19000) )       
-		return 18000;//LPF=18MHz
-		
-	if ( (19000>baud) && (baud>=18000) )       
-		return 16000;//LPF=16MHz
-		
-	if ( (18000>baud) && (baud>=17000) )       
-		return 14000;//LPF=14MHz
-		
-	if ( (17000>baud) && (baud>=16000) )       
-		return 12000;//LPF=12MHz
-		
-/*	if ( 16000>baud) 
-		return 10000;//LPF=10MHz */
-		
-	return 10000; //LPF=10MHz
+	if ( baud>=39000000 )				return 30000;//LPF=30MHz
+	if ( (39000000>baud) && (baud>=35000000) )	return 28000;//LPF=28MHz
+	if ( (35000000>baud) && (baud>=30000000) )	return 26000;//LPF=26MHz
+	if ( (30000000>baud) && (baud>=26000000) )	return 24000;//LPF=24MHz
+	if ( (26000000>baud) && (baud>=23000000) )	return 22000;//LPF=22MHz
+	if ( (23000000>baud) && (baud>=21000000) )	return 20000;//LPF=20MHz
+	if ( (21000000>baud) && (baud>=19000000) )	return 18000;//LPF=18MHz
+	if ( (19000000>baud) && (baud>=18000000) )	return 16000;//LPF=16MHz
+	if ( (18000000>baud) && (baud>=17000000) )	return 14000;//LPF=14MHz
+	if ( (17000000>baud) && (baud>=16000000) )	return 12000;//LPF=12MHz
+	else						return 10000;//LPF=10MHz
+}
+
+static void calculate_pll_vco(u32 freq, u32 *div, u32 *ba)
+{
+	BUG_ON(!div);
+	BUG_ON(!ba);
+	
+	*div	= 1;
+	*ba	= 6;
+
+	if ( (950000<=freq) && (freq<1065000) )		*div=1,*ba=6;
+	else if ( (1065000<=freq) && (freq<1170000) )	*div=1,*ba=7;
+	else if ( (1170000<=freq) && (freq<1300000) )	*div=0,*ba=1;
+	else if ( (1300000<=freq) && (freq<1445000) )	*div=0,*ba=2;
+	else if ( (1445000<=freq) && (freq<1607000) )	*div=0,*ba=3;
+	else if ( (1607000<=freq) && (freq<1778000) )	*div=0,*ba=4;
+	else if ( (1778000<=freq) && (freq<1942000) )	*div=0,*ba=5;
+	else if (1942000<=freq)				*div=0,*ba=6;
 }
 
 static int ix2476_release(struct dvb_frontend *fe)
@@ -90,122 +83,87 @@ static int ix2476_release(struct dvb_frontend *fe)
 
 static int ix2476_sleep(struct dvb_frontend *fe)
 {
-	struct ix2476_priv *priv = fe->tuner_priv;
-	int ret;
-	u8 buf[] = { 10, 0 };
-	struct i2c_msg msg = {
-		.addr = priv->i2c_address,
-		.flags = 0,
-		.buf = buf,
-		.len = 2
-	};
-
-	dprintk("%s:\n", __func__);
-
-	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1);
-
-	ret = i2c_transfer(priv->i2c, &msg, 1);
-	if (ret != 1)
-		dprintk("%s: i2c error\n", __func__);
-
-	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0);
-
-	return (ret == 1) ? 0 : ret;
+	dprintk("%s: not implemented\n", __func__);
+	
+	return 0;
 }
 
-#define TUNER_XTAL_KHZ 40000
+#define TUNER_XTAL_KHZ		(4000)
+#define TUNER_PLL_STEP		(TUNER_XTAL_KHZ / 8)
 
 static int ix2476_set_params(struct dvb_frontend *fe,
 				struct dvb_frontend_parameters *params)
 {
 	struct ix2476_priv *priv = fe->tuner_priv;
-	u32 data, pd2, pd3, pd4, pd5, cutoff, pll_step, R10, Nref, div, ba, freq, baud, byte2, byte3;
+	u32 data, reg2, reg3, div, ba, cutoff, pd2, pd3, pd4, pd5;
 	int ret = 0;
-	u8 buf [4] = {0, 0, 0, 0xE5};
 	struct i2c_msg msg[] = {
-		{.addr = priv->i2c_address,	.flags = 0,	.buf = buf,	.len = 4 },
-		{.addr = priv->i2c_address,	.flags = 0,	.buf = &buf[2],	.len = 1 },
-		{.addr = priv->i2c_address,	.flags = 0,	.buf = &buf[2],	.len = 2 },
+		{.addr = priv->i2c_address,	.flags = 0,	.buf = &priv->regs[0],	.len = 4 },
+		{.addr = priv->i2c_address,	.flags = 0,	.buf = &priv->regs[2],	.len = 1 },
+		{.addr = priv->i2c_address,	.flags = 0,	.buf = &priv->regs[2],	.len = 2 },
 	};
 	
-	freq = params->frequency;
-	baud = params->u.qpsk.symbol_rate / 1000;
-	
-	// Divisor
-	R10 = buf[3] & 3;
-	Nref = 4 * (1 << R10);
-	pll_step = TUNER_XTAL_KHZ / Nref;
-	data = ((freq * 2) / (pll_step * 2) + 1)/2;
-	buf[0] = (data >> 8) & 0x7f;
-	buf[1] = data & 0xff;
-	
-	// Bandwidth
-	cutoff = calculate_pll_lpf_cutoff(baud);
-	data = ((cutoff / 1000) / 2) - 2;
-	pd2 = (data >> 1) & 0x04;
-	pd3 = (data << 1) & 0x08;
-	pd4 = (data << 2) & 0x08;
-	pd5 = (data << 4) & 0x10;
-	buf[2] &= 0xE7;
-	buf[3] &= 0xF3;
-	buf[2] |= (pd5 | pd4);
-	buf[3] |= (pd3 | pd2);
-	
+	dprintk("%s: Tunning to frequency %d and symbol-rate %d\n", __func__, params->frequency, params->u.qpsk.symbol_rate);
+
 	// Frequency
-	div	= 1;
-	ba	= 5;
-
-	if ( (950000<=freq) && (freq<970000) )		div=1,ba=6; //div=1,ba=5;
-	else if ( (970000<=freq) && (freq<1065000) )	div=1,ba=6;
-	else if ( (1065000<=freq) && (freq<1170000) )	div=1,ba=7;
-	else if ( (1170000<=freq) && (freq<1300000) )	div=0,ba=1;
-	else if ( (1300000<=freq) && (freq<1445000) )	div=0,ba=2;
-	else if ( (1445000<=freq) && (freq<1607000) )	div=0,ba=3;
-	else if ( (1607000<=freq) && (freq<1778000) )	div=0,ba=4;
-	else if ( (1778000<=freq) && (freq<1942000) )	div=0,ba=5;
-	else if ( (1942000<=freq) && (freq<2131000) )	div=0,ba=6;
-	else if (2131000<=freq)				div=0,ba=6;
-
-	buf[3] &= 0xFD;
-	buf[3] |= (div << 1);
-	buf[3] &= 0x1F;
-	buf[3] |= (ba << 5);
+	data = params->frequency / TUNER_PLL_STEP;
+	
+	priv->regs[0] = (data >> 8) & 0x1f;
+	priv->regs[1] = data;
+	
+	// Local oscillator
+	calculate_pll_vco(params->frequency, &div, &ba);
+	
+	priv->regs[3] = (ba << 5) | ((div & 1) << 1);
+	
+	// LPF cut-off
+	cutoff = calculate_pll_lpf_cutoff(params->u.qpsk.symbol_rate);
+	cutoff = ((cutoff / 1000) / 2) - 2;
+	pd2 = (cutoff >> 1) & 0x04;
+	pd3 = (cutoff << 1) & 0x08;
+	pd4 = (cutoff << 2) & 0x08;
+	pd5 = (cutoff << 4) & 0x10;
+	priv->regs[2] &= 0xe7;
+	priv->regs[2] |= (pd5 | pd4);
+	priv->regs[3] &= 0xf3;
+	priv->regs[3] |= (pd3 | pd2);
+	
+	dprintk("%s: ix2476 registers: %02x, %02x, %02x, %02x\n", __func__,
+		 priv->regs[0], priv->regs[1], priv->regs[2], priv->regs[3]);
 	
 	// Initialize
-	byte2 = buf[2];
-	byte3 = buf[3];
-	buf[2] &= 0xE3;	//TM=0,LPF=4MHz
-	buf[3] &= 0xF3;	//LPF=4MHz
+	reg2 = priv->regs[2];
+	reg3 = priv->regs[3];
+	priv->regs[2] &= 0xE3;	// PD5=0, PD4=0, TM=0
+	priv->regs[3] &= 0xF3;	// PD3=0, PD2=0
 	
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 1);
 	if ((ret = i2c_transfer (priv->i2c, &msg[0], 1)) != 1) {
-		dprintk("%s: i2c error\n", __func__);
+		dprintk("%s: i2c #1 error\n", __func__);
 	}
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 0);
 	
-	buf[2] |= 0x04;	//TM=1
+	priv->regs[2] |= 0x04;	//TM=1
 	
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 1);
 	if ((ret = i2c_transfer (priv->i2c, &msg[1], 1)) != 1) {
-		dprintk("%s: i2c error\n", __func__);
+		dprintk("%s: i2c #2 error\n", __func__);
 	}
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 0);
 	
-	msleep(20);
+	msleep(10);
 	
-	buf[2] = byte2;
-	buf[3] = byte3;
+	priv->regs[2] = reg2 | 0x04;
+	priv->regs[3] = reg3;
 	
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 1);
 	if ((ret = i2c_transfer (priv->i2c, &msg[2], 1)) != 1) {
-		dprintk("%s: i2c error\n", __func__);
+		dprintk("%s: i2c #3 error\n", __func__);
 	}
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 0);
@@ -216,7 +174,35 @@ static int ix2476_set_params(struct dvb_frontend *fe,
 static int ix2476_get_frequency(struct dvb_frontend *fe, u32 *frequency)
 {
 	struct ix2476_priv *priv = fe->tuner_priv;
-	*frequency = priv->frequency;
+	u32 data;
+	
+	data = ((priv->regs[0] & 0x1f) << 8) | (priv->regs[1]);
+	*frequency = TUNER_PLL_STEP * data;
+	
+	return 0;
+}
+
+static int ix2476_get_status(struct dvb_frontend *fe, u32 *status)
+{
+	u8 buf = 0;
+	struct ix2476_priv *priv = fe->tuner_priv;
+	struct i2c_msg msg = {
+		.addr = priv->i2c_address,	.flags = I2C_M_RD,	.buf = &buf,	.len = 1,
+	};
+	
+	if (fe->ops.i2c_gate_ctrl)
+		fe->ops.i2c_gate_ctrl(fe, 1);
+	if ((ret = i2c_transfer (priv->i2c, &msg, 1)) != 1) {
+		dprintk("%s: i2c read error\n", __func__);
+	}
+	if (fe->ops.i2c_gate_ctrl)
+		fe->ops.i2c_gate_ctrl(fe, 0);
+	
+	*status = 0;
+	
+	if(buf & 0x40)
+		*status |= TUNER_STATUS_LOCKED;
+	
 	return 0;
 }
 
@@ -230,12 +216,14 @@ static struct dvb_tuner_ops ix2476_tuner_ops = {
 	.sleep = ix2476_sleep,
 	.set_params = ix2476_set_params,
 	.get_frequency = ix2476_get_frequency,
+	.get_status = ix2476_get_status,
 };
 
 struct dvb_frontend *ix2476_attach(struct dvb_frontend *fe, int addr,
 						struct i2c_adapter *i2c)
 {
 	struct ix2476_priv *priv = NULL;
+	
 	u8 b0[] = { 0 };
 	struct i2c_msg msg[1] = {
 		{
@@ -246,7 +234,7 @@ struct dvb_frontend *ix2476_attach(struct dvb_frontend *fe, int addr,
 		}
 	};
 	int ret;
-
+	
 	dprintk("%s:\n", __func__);
 
 	if (fe->ops.i2c_gate_ctrl)
@@ -266,6 +254,10 @@ struct dvb_frontend *ix2476_attach(struct dvb_frontend *fe, int addr,
 
 	priv->i2c_address = addr;
 	priv->i2c = i2c;
+	priv->regs[0] = 0x00;
+	priv->regs[1] = 0x00;
+	priv->regs[2] = 0xE1;
+	priv->regs[3] = 0x00;
 
 	memcpy(&fe->ops.tuner_ops, &ix2476_tuner_ops,
 				sizeof(struct dvb_tuner_ops));
@@ -279,6 +271,6 @@ EXPORT_SYMBOL(ix2476_attach);
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Turn on/off frontend debugging (default:off).");
 
-MODULE_DESCRIPTION("DVB STB6000 driver");
-MODULE_AUTHOR("Igor M. Liplianin <liplianin@me.by>");
+MODULE_DESCRIPTION("Sharp IX2410/IX2476 driver");
+MODULE_AUTHOR("Tomasz Figa <tomasz.figa@gmail.com>");
 MODULE_LICENSE("GPL");

@@ -510,9 +510,18 @@ static int stv0288_i2c_gate_ctrl(struct dvb_frontend *fe, int enable)
 	struct stv0288_state *state = fe->demodulator_priv;
 
 	if (enable)
+#ifdef CONFIG_STBx25xx
+		stv0288_writeregI(state, 0x01, 0x95);
+#else
 		stv0288_writeregI(state, 0x01, 0xb5);
+#endif
 	else
+#ifdef CONFIG_STBx25xx
+		stv0288_writeregI(state, 0x01, 0x15);
+#else
 		stv0288_writeregI(state, 0x01, 0x35);
+#endif
+	
 
 	udelay(1);
 
