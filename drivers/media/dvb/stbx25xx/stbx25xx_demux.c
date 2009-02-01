@@ -1424,11 +1424,12 @@ static int demux_remove_section_filter(struct dvb_demux_feed *feed)
 	if(!demux_queues[queue].feed && queue < 30) {
 		ret = demux_remove_queue(queue);
 	
-		while(!list_empty(&demux_queues[queue].filters)) {
-				block = list_first_entry(&demux_queues[queue].filters, struct filter_block, list);
-				list_del(&block->list);
-				demux_free_filter_block(block);
-		}
+		if(!(demux_queues[queue].config & QUEUE_CONFIG_SWDEMUX))
+			while(!list_empty(&demux_queues[queue].filters)) {
+					block = list_first_entry(&demux_queues[queue].filters, struct filter_block, list);
+					list_del(&block->list);
+					demux_free_filter_block(block);
+			}
 	}
 	
 	mutex_unlock(&queues_mutex);
