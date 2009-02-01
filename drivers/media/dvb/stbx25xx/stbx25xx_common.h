@@ -12,6 +12,7 @@
 #define DRIVER_NAME "IBM STBx25xx digital TV hardware driver"
 #define DRIVER_AUTHOR "Tomasz Figa <tomasz.figa@gmail.com>"
 
+#include <linux/list.h>
 #include "dmxdev.h"
 #include "dvb_demux.h"
 #include "dvb_filter.h"
@@ -20,6 +21,7 @@
 
 #define STBx25xx_MAX_FEED		30
 #define STBx25xx_QUEUE_COUNT		32
+#define STBx25xx_FILTER_BLOCK_COUNT	64
 #define STBx25xx_DEMUX1_IRQ_COUNT	15
 #define STBx25xx_LOG_PREFIX	"dvb-stbx25xx"
 

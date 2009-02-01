@@ -179,11 +179,14 @@ static int ix2476_get_frequency(struct dvb_frontend *fe, u32 *frequency)
 	data = ((priv->regs[0] & 0x1f) << 8) | (priv->regs[1]);
 	*frequency = TUNER_PLL_STEP * data;
 	
+	dprintk("%s: Frequency = %d kHz\n", __func__, *frequency);
+	
 	return 0;
 }
 
 static int ix2476_get_status(struct dvb_frontend *fe, u32 *status)
 {
+	int ret;
 	u8 buf = 0;
 	struct ix2476_priv *priv = fe->tuner_priv;
 	struct i2c_msg msg = {
@@ -223,30 +226,7 @@ struct dvb_frontend *ix2476_attach(struct dvb_frontend *fe, int addr,
 						struct i2c_adapter *i2c)
 {
 	struct ix2476_priv *priv = NULL;
-	
-	u8 b0[] = { 0 };
-	struct i2c_msg msg[1] = {
-		{
-			.addr = addr,
-			.flags = I2C_M_RD,
-			.buf = b0,
-			.len = 1
-		}
-	};
 	int ret;
-	
-	dprintk("%s:\n", __func__);
-
-	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1);
-
-	/* is some i2c device here ? */
-	ret = i2c_transfer(i2c, msg, 1);
-	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0);
-
-	if (ret != 1)
-		return NULL;
 
 	priv = kzalloc(sizeof(struct ix2476_priv), GFP_KERNEL);
 	if (priv == NULL)

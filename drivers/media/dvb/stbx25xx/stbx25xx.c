@@ -52,16 +52,17 @@ static int stbx25xx_dvb_init(struct stbx25xx_dvb_dev *dev)
 		err("error registering DVB adapter");
 		return ret;
 	}
+	
 	dev->dvb_adapter.priv = dev;
+	
+	dev->demux.dmx.capabilities = (DMX_TS_FILTERING | DMX_PES_FILTERING |
+					DMX_SECTION_FILTERING | DMX_MEMORY_BASED_FILTERING | DMX_TS_DESCRAMBLING);
+	dev->demux.priv		= dev;
+	dev->demux.filternum	= STBx25xx_MAX_FEED;
+	dev->demux.feednum	= STBx25xx_MAX_FEED;
 
-	dev->demux.dmx.capabilities = (DMX_TS_FILTERING | DMX_PES_FILTERING | DMX_SECTION_FILTERING | DMX_MEMORY_BASED_FILTERING | DMX_TS_DESCRAMBLING);
-	dev->demux.priv = dev;
-
-	dev->demux.filternum = STBx25xx_MAX_FEED;
-	dev->demux.feednum = STBx25xx_MAX_FEED;
-
-	dev->demux.start_feed = stbx25xx_demux_start_feed;
-	dev->demux.stop_feed = stbx25xx_demux_stop_feed;
+	dev->demux.start_feed	= stbx25xx_demux_start_feed;
+	dev->demux.stop_feed	= stbx25xx_demux_stop_feed;
 	dev->demux.write_to_decoder = stbx25xx_demux_write_to_decoder;
 
 	if ((ret = dvb_dmx_init(&dev->demux)) < 0) {
@@ -70,17 +71,17 @@ static int stbx25xx_dvb_init(struct stbx25xx_dvb_dev *dev)
 	}
 	
 	// set overrides for clipmode
-	dvbdmx_connect_frontend = dev->demux.dmx.connect_frontend;
+	dvbdmx_connect_frontend 	= dev->demux.dmx.connect_frontend;
 	dev->demux.dmx.connect_frontend = stbx25xx_demux_connect_frontend;
-	dvbdmx_disconnect_frontend = dev->demux.dmx.disconnect_frontend;
+	dvbdmx_disconnect_frontend 	= dev->demux.dmx.disconnect_frontend;
 	dev->demux.dmx.disconnect_frontend = stbx25xx_demux_disconnect_frontend;
-	dev->demux.dmx.get_stc = stbx25xx_demux_get_stc;
+	dev->demux.dmx.get_stc		= stbx25xx_demux_get_stc;
 
 	dev->hw_frontend.source = DMX_FRONTEND_0;
 
-	dev->dmxdev.filternum = dev->demux.feednum;
-	dev->dmxdev.demux = &dev->demux.dmx;
-	dev->dmxdev.capabilities = 0;
+	dev->dmxdev.filternum		= dev->demux.feednum;
+	dev->dmxdev.demux		= &dev->demux.dmx;
+	dev->dmxdev.capabilities	= 0;
 	if ((ret = dvb_dmxdev_init(&dev->dmxdev, &dev->dvb_adapter)) < 0) {
 		err("dvb_dmxdev_init failed: error %d",ret);
 		goto err_dmx_dev;

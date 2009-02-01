@@ -130,7 +130,7 @@
 #define QSTAT_BASE		0x2600
 #define QSTATA(queue)		(QSTAT_BASE + (queue))
 
-#define QSTATBCD_BASE		0x2800
+#define QSTATBCD_BASE		0x2801
 #define QSTATB(queue)		(QSTATBCD_BASE + (4*(queue)))
 #define QSTATC(queue)		(QSTATBCD_BASE + (4*(queue)) + 1)
 #define QSTATD(queue)		(QSTATBCD_BASE + (4*(queue)) + 2)
@@ -152,5 +152,42 @@
 #define TSDMA_INT		0x02ca
 #define TSDMA_STAT		0x02cb
 #define TSDMA_INTMSK		0x02ce
+
+/* Structures */
+
+struct demux_queue {
+	u32 handle;
+	u32 pid;
+	phys_addr_t phys_addr;
+	void *addr;
+	void *ptr;
+	size_t size; /* 0 = Queue disabled */
+#define QUEUE_CONFIG_TYPE_MASK	((1 << 4) - 1)
+#define QUEUE_CONFIG_PESL	(1 << 4)
+#define QUEUE_CONFIG_DE		(1 << 5)
+#define QUEUE_CONFIG_SCPC	(1 << 6)
+#define QUEUE_CONFIG_APUS	(1 << 7)
+#define QUEUE_CONFIG_EN		(1 << 8)
+#define QUEUE_CONFIG_FILTER	(1 << 9)
+#define QUEUE_CONFIG_ACTIVE	(1 << 15)
+	u16 config;
+	u8 key;
+	u32 data_count;
+	spinlock_t lock;
+	struct tasklet_struct tasklet;
+	struct dvb_demux_feed *feed;
+	struct dvb_demux *demux;
+	struct list_head filters;
+	struct list_head list;
+};
+
+struct filter_block {
+	int index;
+	u32 value;
+	u32 mask;
+	u32 positive;
+	u32 sfid;
+	struct list_head list;
+};
 
 #endif

@@ -14,11 +14,14 @@
 extern int dvb_stbx25xx_debug;
 
 /* debug */
-#ifdef CONFIG_DVB_STBx25xx_DEBUG
-#define dprintk(level,args...) \
-	do { if ((dvb_stbx25xx_debug & level)) printk(args); } while (0)
+#ifndef DBG_LEVEL
+#define DBG_LEVEL 0
+#endif
+
+#if DBG_LEVEL > 0
+#	define dprintk(args...) printk(KERN_DEBUG FC_LOG_PREFIX ": " args)
 #else
-#define dprintk(level,args...)
+#	define dprintk(args...)
 #endif
 
 #define deb_info(args...)  dprintk(0x01,args)

@@ -151,7 +151,7 @@ typedef union {
 		unsigned sfll	:1;
 		unsigned ds	:1;
 		unsigned mqstk	:1;
-		unsigned	:16;
+		unsigned	:17;
 	} intmask;
 	
 	struct {
@@ -160,26 +160,6 @@ typedef union {
 		unsigned	:8;
 		unsigned lc	:8;
 	} plbcfg;
-	
-	struct {
-		unsigned	:16;
-		unsigned rpi	:1;
-		unsigned bti	:1;
-		unsigned tsc	:1;
-		unsigned crce	:1;
-		unsigned tsle	:1;
-		unsigned sfuc	:1;
-		unsigned fp	:1;
-		unsigned afle	:1;
-		unsigned tsp	:1;
-		unsigned pse	:1;
-		unsigned pusip	:1;
-		unsigned afp	:1;
-		unsigned afpdp	:1;
-		unsigned dip	:1;
-		unsigned spp	:1;
-		unsigned raip	:1;
-	} qstat;
 	
 	struct {
 		unsigned	:22;
@@ -287,6 +267,7 @@ typedef union {
 	} sfctrl;
 } stbx25xx_demux_val;
 
+/* Transport DMA registers */
 #define TSDMA_CONFIG_ENA	(1 << 0)
 
 #define TSDMA_START_START	(1 << 0)
@@ -298,5 +279,23 @@ typedef union {
 #define TSDMA_STAT_NOT_EMPTY	(1 << 1)
 
 #define TSDMA_INTMSK_COMPL	(1 << 0)
+
+/* Interrupt status registers */
+#define QUEUE_RPI	(0x80000000 >> 16)
+#define QUEUE_BTI	(0x80000000 >> 17)
+#define QUEUE_PCSC	(0x80000000 >> 18)
+#define QUEUE_CRCE	(0x80000000 >> 19)
+#define QUEUE_TSLE	(0x80000000 >> 20)
+#define QUEUE_SFUC	(0x80000000 >> 21)
+#define QUEUE_FP	(0x80000000 >> 22)
+#define QUEUE_AFLE	(0x80000000 >> 23)
+#define QUEUE_TSP	(0x80000000 >> 24)
+#define QUEUE_PSE	(0x80000000 >> 25)
+#define QUEUE_PUSIP	(0x80000000 >> 26)
+#define QUEUE_AFP	(0x80000000 >> 27)
+#define QUEUE_AFPDP	(0x80000000 >> 28)
+#define QUEUE_DIP	(0x80000000 >> 29)
+#define QUEUE_SPP	(0x80000000 >> 30)
+#define QUEUE_RAIP	(0x80000000 >> 31)
 
 #endif

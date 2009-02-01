@@ -365,10 +365,17 @@ static int stv0288_read_status(struct dvb_frontend *fe, fe_status_t *status)
 
 	*status = 0;
 
-	if ((sync & 0x08) == 0x08) {
+	if (sync & 0x80)
+		*status |= FE_HAS_CARRIER;
+
+	if (sync & 0x10)
+		*status |= FE_HAS_VITERBI;
+
+	if (sync & 0x08)
+		*status |= FE_HAS_SYNC;
+
+	if ((sync & 0x98) == 0x98)
 		*status |= FE_HAS_LOCK;
-		dprintk("stv0288 has locked\n");
-	}
 
 	return 0;
 }
