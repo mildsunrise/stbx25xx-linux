@@ -657,7 +657,7 @@ static void demux_config_queue(int queue)
 		
 		if(demux_queues[queue].config & QUEUE_CONFIG_SECFLT) {
 			block = list_first_entry(&demux_queues[queue].filters, struct filter_block, list);
-			reg.qcfgb.fsf = block->sfid;
+			reg.qcfgb.fsf = block->index;
 		}
 		
 		set_demux_reg(QCFGB(queue), reg);
@@ -1315,7 +1315,7 @@ found:
 		feed->priv = NULL;
 		queue->feed = feed;
 		
-		ret = demux_install_queue(queue->handle, feed->pid, 16, QCFG_DT_TSPKT | QUEUE_CONFIG_EN | QUEUE_CONFIG_SWDEMUX, 0);
+		ret = demux_install_queue(queue->handle, feed->pid, 16, QCFG_DT_TSPKT | QUEUE_CONFIG_EN | QUEUE_CONFIG_SWDEMUX | QUEUE_CONFIG_APUS, 0);
 		if(ret)
 			demux_free_queue(queue);
 		
@@ -1333,10 +1333,12 @@ found:
 			(feed->filter->filter.filter_mask[4] << 8) | 
 			(feed->filter->filter.filter_mask[5]);
 			
-	block->positive = ((~feed->filter->maskandmode[0]) << 24) |
-			((~feed->filter->maskandmode[3]) << 16) | 
-			((~feed->filter->maskandmode[4]) << 8) | 
-			(~feed->filter->maskandmode[5]);
+	block->positive = (feed->filter->maskandmode[0] << 24) |
+			(feed->filter->maskandmode[3] << 16) | 
+			(feed->filter->maskandmode[4] << 8) | 
+			(feed->filter->maskandmode[5]);
+			
+	block->positive = ~block->positive;
 			
 	block->sfid = feed->filter->index;
 	
@@ -1352,10 +1354,12 @@ found:
 				(feed->filter->filter.filter_mask[i+2] << 8) | 
 				(feed->filter->filter.filter_mask[i+3]);
 				
-		block->positive = ((~feed->filter->maskandmode[i]) << 24) |
-				((~feed->filter->maskandmode[i+1]) << 16) | 
-				((~feed->filter->maskandmode[i+2]) << 8) | 
-				(~feed->filter->maskandmode[i+3]);
+		block->positive = (feed->filter->maskandmode[i] << 24) |
+				(feed->filter->maskandmode[i+1] << 16) | 
+				(feed->filter->maskandmode[i+2] << 8) | 
+				(feed->filter->maskandmode[i+3]);
+				
+		block->positive = ~block->positive;
 				
 		block->sfid = feed->filter->index;
 		i += 4;
@@ -1366,7 +1370,7 @@ found:
 	
 	demux_config_section_filters(queue);
 	ret = demux_install_queue(queue->handle, feed->pid, 16, 
-				   QCFG_DT_TBSEC_FLT | QUEUE_CONFIG_EN | QUEUE_CONFIG_SECFLT, 0);
+				   QCFG_DT_TBSEC_FLT | QUEUE_CONFIG_EN | QUEUE_CONFIG_SECFLT | QUEUE_CONFIG_APUS, 0);
 	
 	if(ret) {
 		while(!list_empty(&queue->filters)) {
