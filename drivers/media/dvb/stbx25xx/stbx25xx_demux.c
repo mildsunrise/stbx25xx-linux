@@ -1312,7 +1312,10 @@ found:
 		
 		dprintk("%s: No more hardware section filters available, falling back to software\n", __func__);
 		
-		ret = demux_install_user_queue(feed, 16, QCFG_DT_TSPKT | QUEUE_CONFIG_EN | QUEUE_CONFIG_SWDEMUX);
+		feed->priv = NULL;
+		queue->feed = feed;
+		
+		ret = demux_install_queue(queue->handle, feed->pid, 16, QCFG_DT_TSPKT | QUEUE_CONFIG_EN | QUEUE_CONFIG_SWDEMUX, 0);
 		if(ret)
 			demux_free_queue(queue);
 		
