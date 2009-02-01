@@ -655,7 +655,7 @@ static void demux_config_queue(int queue)
 		reg.qcfgb.enbl	= (demux_queues[queue].config & QUEUE_CONFIG_EN) != 0;
 		reg.qcfgb.scpc	= 1;
 		
-		if(demux_queues[queue].config & QUEUE_CONFIG_FILTER) {
+		if(demux_queues[queue].config & QUEUE_CONFIG_SECFLT) {
 			block = list_first_entry(&demux_queues[queue].filters, struct filter_block, list);
 			reg.qcfgb.fsf = block->index;
 		}
@@ -787,15 +787,45 @@ static void demux_free_queue(struct demux_queue *queue)
  * Submit data to apropriate callback function
  */
 
-static void demux_submit_data(struct demux_queue *queue, void *buf, size_t size, void *buf2, size_t size2)
+static void demux_section_callback(struct demux_queue *queue, void *buf, size_t size, void *buf2, size_t size2)
 {
 	if(!size2)
 		buf2 = NULL;
 	
-	if(queue->feed->type == DMX_TYPE_TS) {
-		queue->feed->cb.ts(buf, size, buf2, size2, &queue->feed->feed.ts, DMX_OK);
-	} else if(queue->feed->type == DMX_TYPE_SEC) {
-		queue->feed->cb.sec(buf, size, buf2, size2, &queue->feed->filter->filter, DMX_OK);
+	queue->feed->cb.sec(buf, size, buf2, size2, &queue->feed->filter->filter, DMX_OK);
+}
+
+static void demux_ts_pes_callback(struct demux_queue *queue, void *buf, size_t size, void *buf2, size_t size2)
+{
+	if(!size2)
+		buf2 = NULL;
+	
+	queue->feed->cb.ts(buf, size, buf2, size2, &queue->feed->feed.ts, DMX_OK);	
+}
+
+static void demux_swdemux_callback(struct demux_queue *queue, void *buf, size_t size, void *buf2, size_t size2)
+{
+	u32 packets;
+	
+	if(!size2) {
+		dvb_dmx_swfilter_packets(queue->demux, buf, size / 188);
+	} else {
+		packets = size / 188;
+		if(packets)
+			dvb_dmx_swfilter_packets(queue->demux, buf, packets);
+		
+		size -= packets * 188;
+		buf += packets * 188;
+		
+		dvb_dmx_swfilter(queue->demux, buf, size);
+		dvb_dmx_swfilter(queue->demux, buf2, 188 - size);
+		
+		size2 -= 188 - size;
+		buf2 += 188 - size;
+		
+		packets = size2 / 188;
+		if(packets)
+			dvb_dmx_swfilter_packets(queue->demux, buf2, packets);
 	}
 }
 
@@ -850,7 +880,9 @@ static void demux_unloading_task(unsigned long data)
 //		dprintk("%s: Unloading %d bytes of queue %d data from %p\n",
 //			__func__, data_avl, queue->handle, queue->ptr);
 
-		demux_submit_data(queue, queue->ptr, data_avl, queue->addr, data_avl2);
+		if(queue->cb)
+			queue->cb(queue, queue->ptr, data_avl, queue->addr, data_avl2);
+		
 		queue->ptr += data_avl + data_avl2;
 		queue->data_count += data_avl + data_avl2;
 
@@ -977,6 +1009,13 @@ static int demux_install_queue(int queue, u32 pid, u32 blocks, u16 config, u16 k
 	demux_queues[queue].ptr		= demux_queues[queue].addr;
 	demux_queues[queue].data_count	= 0;
 	
+	if(config & QUEUE_CONFIG_SWDEMUX)
+		demux_queues[queue].cb = demux_swdemux_callback;
+	else if(config & QUEUE_CONFIG_SECFLT)
+		demux_queues[queue].cb = demux_section_callback;
+	else
+		demux_queues[queue].cb = demux_ts_pes_callback;
+	
 	demux_stop_queue(queue);
 	demux_reset_queue(queue);
 	demux_config_queue(queue);
@@ -1095,6 +1134,7 @@ static int demux_init_queues(struct stbx25xx_dvb_dev *dvb)
 		demux_queues[i].handle = i;
 		demux_queues[i].demux = &dvb->demux;
 		demux_queues[i].pid = 0x1fff;
+		demux_queues[i].cb = NULL;
 		
 		if(i < 30)
 			list_add_tail(&demux_queues[i].list, &queues_list);
@@ -1269,7 +1309,13 @@ found:
 			list_del(&block->list);
 			demux_free_filter_block(block);
 		}
-		ret = -EBUSY;
+		
+		dprintk("%s: No more hardware section filters available, falling back to software\n", __func__);
+		
+		ret = demux_install_user_queue(feed, 16, QCFG_DT_TSPKT | QUEUE_CONFIG_EN | QUEUE_CONFIG_SWDEMUX);
+		if(ret)
+			demux_free_queue(queue);
+		
 		goto exit;
 	}
 	
@@ -1284,10 +1330,10 @@ found:
 			(feed->filter->filter.filter_mask[4] << 8) | 
 			(feed->filter->filter.filter_mask[5]);
 			
-	block->positive = (feed->filter->filter.filter_mode[0] << 24) |
-			(feed->filter->filter.filter_mode[3] << 16) | 
-			(feed->filter->filter.filter_mode[4] << 8) | 
-			(feed->filter->filter.filter_mode[5]);
+	block->positive = ((~feed->filter->maskandmode[0]) << 24) |
+			((~feed->filter->maskandmode[3]) << 16) | 
+			((~feed->filter->maskandmode[4]) << 8) | 
+			(~feed->filter->maskandmode[5]);
 			
 	block->sfid = feed->filter->index;
 	
@@ -1303,10 +1349,10 @@ found:
 				(feed->filter->filter.filter_mask[i+2] << 8) | 
 				(feed->filter->filter.filter_mask[i+3]);
 				
-		block->positive = (feed->filter->filter.filter_mode[i] << 24) |
-				(feed->filter->filter.filter_mode[i+1] << 16) | 
-				(feed->filter->filter.filter_mode[i+2] << 8) | 
-				(feed->filter->filter.filter_mode[i+3]);
+		block->positive = ((~feed->filter->maskandmode[i]) << 24) |
+				((~feed->filter->maskandmode[i+1]) << 16) | 
+				((~feed->filter->maskandmode[i+2]) << 8) | 
+				(~feed->filter->maskandmode[i+3]);
 				
 		block->sfid = feed->filter->index;
 		i += 4;
@@ -1317,7 +1363,7 @@ found:
 	
 	demux_config_section_filters(queue);
 	ret = demux_install_queue(queue->handle, feed->pid, 16, 
-				   QCFG_DT_TBSEC_FLT | QUEUE_CONFIG_EN | QUEUE_CONFIG_FILTER, 0);
+				   QCFG_DT_TBSEC_FLT | QUEUE_CONFIG_EN | QUEUE_CONFIG_SECFLT, 0);
 	
 	if(ret) {
 		while(!list_empty(&queue->filters)) {

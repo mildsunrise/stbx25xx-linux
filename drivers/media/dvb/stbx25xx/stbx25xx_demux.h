@@ -168,7 +168,8 @@ struct demux_queue {
 #define QUEUE_CONFIG_SCPC	(1 << 6)
 #define QUEUE_CONFIG_APUS	(1 << 7)
 #define QUEUE_CONFIG_EN		(1 << 8)
-#define QUEUE_CONFIG_FILTER	(1 << 9)
+#define QUEUE_CONFIG_SECFLT	(1 << 9)
+#define QUEUE_CONFIG_SWDEMUX	(1 << 10)
 #define QUEUE_CONFIG_ACTIVE	(1 << 15)
 	u16 config;
 	u8 key;
@@ -179,6 +180,7 @@ struct demux_queue {
 	struct dvb_demux *demux;
 	struct list_head filters;
 	struct list_head list;
+	void (*cb)(struct demux_queue *, void *, size_t, void *, size_t);
 };
 
 struct filter_block {
