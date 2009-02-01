@@ -657,7 +657,7 @@ static void demux_config_queue(int queue)
 		
 		if(demux_queues[queue].config & QUEUE_CONFIG_SECFLT) {
 			block = list_first_entry(&demux_queues[queue].filters, struct filter_block, list);
-			reg.qcfgb.fsf = block->index;
+			reg.qcfgb.fsf = block->sfid;
 		}
 		
 		set_demux_reg(QCFGB(queue), reg);
