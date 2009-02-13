@@ -903,6 +903,12 @@ config BLK_DEV_UMC8672
 
 endif
 
+config BLK_DEV_IDE_STBx25xx
+	tristate "IBM STBx25xx IDE support"
+	depends on STBx25xx
+	help
+	  Select this option to support the on-chip IDE controller of IBM STBx25xx SoC.
+
 config BLK_DEV_IDEDMA
 	def_bool BLK_DEV_IDEDMA_SFF || \
 		 BLK_DEV_IDEDMA_ICS || BLK_DEV_IDE_AU1XXX_MDMA2_DBDMA
