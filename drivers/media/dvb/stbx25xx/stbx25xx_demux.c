@@ -302,12 +302,12 @@ static inline void set_demux_reg(u16 reg, stbx25xx_demux_val val)
 {
 	unsigned long flags;
 	
-	spin_lock_irqsave(&demux_dcr_lock, flags);
+	local_irq_save(flags);
 	
 	mtdcr(DEMUX_ADDR, reg);
 	mtdcr(DEMUX_DATA, val.raw);
 	
-	spin_unlock_irqrestore(&demux_dcr_lock, flags);
+	local_irq_restore(flags);
 }
 
 /* set_demux_reg_raw */
@@ -315,12 +315,12 @@ static inline void set_demux_reg_raw(u16 reg, u32 val)
 {
 	unsigned long flags;
 	
-	spin_lock_irqsave(&demux_dcr_lock, flags);
+	local_irq_save(flags);
 	
 	mtdcr(DEMUX_ADDR, reg);
 	mtdcr(DEMUX_DATA, val);
 	
-	spin_unlock_irqrestore(&demux_dcr_lock, flags);
+	local_irq_restore(flags);
 }
 
 /* get_demux_reg */
@@ -329,12 +329,12 @@ static inline stbx25xx_demux_val get_demux_reg(u16 reg)
 	stbx25xx_demux_val val;
 	unsigned long flags;
 
-	spin_lock_irqsave(&demux_dcr_lock, flags);
+	local_irq_save(flags);
 	
 	mtdcr(DEMUX_ADDR, reg);
 	val.raw = mfdcr(DEMUX_DATA);
 	
-	spin_unlock_irqrestore(&demux_dcr_lock, flags);
+	local_irq_restore(flags);
 	
 	return val;
 }
@@ -345,12 +345,12 @@ static inline u32 get_demux_reg_raw(u16 reg)
 	u32 val;
 	unsigned long flags;
 
-	spin_lock_irqsave(&demux_dcr_lock, flags);
+	local_irq_save(flags);
 	
 	mtdcr(DEMUX_ADDR, reg);
 	val = mfdcr(DEMUX_DATA);
 	
-	spin_unlock_irqrestore(&demux_dcr_lock, flags);
+	local_irq_restore(flags);
 	
 	return val;
 }
@@ -462,6 +462,8 @@ static struct list_head queues_list;
 static struct demux_queue demux_queues[STBx25xx_QUEUE_COUNT];
 static u32 demux_queues_irq_mask = 0;
 static u32 demux_qstat_irq_mask = 0;
+static u32 active_queues;
+static u32 running_queues;
 
 #if 0
 /*
@@ -501,9 +503,15 @@ static phys_addr_t queue_to_phys(struct demux_queue *queue, void *addr)
  */
 static void demux_unmask_qstat_irq(u32 mask)
 {
+	unsigned long flags;
+	
+	local_irq_save(flags);
+	
 	mask &= 0xFFFF;
 	demux_qstat_irq_mask |= mask;
 	set_demux_reg_raw(QSTMSK, demux_qstat_irq_mask);
+	
+	local_irq_restore(flags);
 }
 
 /*
@@ -512,9 +520,15 @@ static void demux_unmask_qstat_irq(u32 mask)
  */
 static void demux_mask_qstat_irq(u32 mask)
 {
+	unsigned long flags;
+	
+	local_irq_save(flags);
+	
 	mask &= 0xFFFF;
 	demux_qstat_irq_mask &= ~mask;
 	set_demux_reg_raw(QSTMSK, demux_qstat_irq_mask);
+	
+	local_irq_restore(flags);
 }
 
 /*
@@ -523,11 +537,17 @@ static void demux_mask_qstat_irq(u32 mask)
  */
 static void demux_enable_queue_irq(int queue)
 {
+	unsigned long flags;
+
 	if(queue > 31)
 		return;
 	
+	local_irq_save(flags);
+	
 	demux_queues_irq_mask |= (1 << 31) >> queue;
 	set_demux_reg_raw(QINTMSK, demux_queues_irq_mask);
+	
+	local_irq_restore(flags);
 }
 
 /*
@@ -536,11 +556,17 @@ static void demux_enable_queue_irq(int queue)
  */
 static void demux_disable_queue_irq(int queue)
 {
+	unsigned long flags;
+	
 	if(queue > 31)
 		return;
 	
+	local_irq_save(flags);
+	
 	demux_queues_irq_mask &= ~((1 << 31) >> queue);
 	set_demux_reg_raw(QINTMSK, demux_queues_irq_mask);
+	
+	local_irq_restore(flags);
 }
 
 /* demux_scpc_enable */
@@ -673,6 +699,7 @@ static void demux_config_queue(int queue)
 		}
 		
 		demux_queues[queue].config |= QUEUE_CONFIG_ACTIVE;
+		active_queues |= 1 << (31 - queue);
 		
 		demux_enable_queue_irq(queue);
 		
@@ -740,12 +767,19 @@ static int demux_video_channel_change(u16 pid)
 /* demux_process_queue_irq */
 static void demux_process_queue_irq(int queue, u32 stat)
 {
+	unsigned long flags;
+	
 	if(stat & QUEUE_RPI)
 		dprintk("%s: Queue %d Read Pointer Interrupt\n", __func__, queue);
 	
 	if(stat & QUEUE_PCSC) {
 		demux_scpc_disable(queue);
-		tasklet_hi_schedule(&demux_queues[queue].tasklet);
+	}
+	
+	if(stat & QUEUE_FP) {
+		local_irq_save(flags);
+		running_queues |= 1 << (31 - queue);
+		local_irq_restore(flags);
 	}
 	
 	set_demux_reg_raw(QSTATA(queue), stat);
@@ -974,6 +1008,8 @@ static void demux_unloading_task(unsigned long data)
  */
 static int demux_remove_queue(int queue)
 {
+	unsigned long flags;
+	
 	BUG_ON(!demux_queues[queue].size);
 	
 	if(demux_queues[queue].size) {
@@ -984,8 +1020,14 @@ static int demux_remove_queue(int queue)
 		demux_disable_queue_irq(queue);
 		
 		dprintk("%s: Waiting for queue %d unloader to terminate...\n", __func__, queue);
-		
+	
+		active_queues &= ~(1 << (31 - queue));
 		tasklet_disable(&demux_queues[queue].tasklet);
+		
+		local_irq_save(flags);
+		running_queues &= ~(1 << (31 - queue));
+		local_irq_restore(flags);
+		
 		reset_queue_config(queue);		
 		queues_pool_free(demux_queues[queue].addr, demux_queues[queue].size);
 		
@@ -1213,6 +1255,9 @@ static int demux_init_queues(struct stbx25xx_dvb_dev *dvb)
 		
 		INIT_LIST_HEAD(&demux_queues[i].filters);
 	}
+	
+	active_queues = 0;
+	running_queues = 0;
 	
 	if((ret = queues_pool_init(DEMUX_QUEUES_BASE, queues_base, DEMUX_QUEUES_SIZE)) != 0)
 		goto error_pool;
@@ -1857,7 +1902,7 @@ static void demux_enable_irq(int demux_irq)
 	if(demux_irq >= STBx25xx_DEMUX1_IRQ_COUNT || demux_irq < 0)
 		return;
 
-	spin_lock_irqsave(&demux_irq_lock, flags);
+	local_irq_save(flags);
 	
 	if(!irq_handler_table[demux_irq]) {
 		err("demux_enable_irq: Tried to enable a demux IRQ %d, which does not have a handler", demux_irq);
@@ -1868,7 +1913,7 @@ static void demux_enable_irq(int demux_irq)
 	set_demux_reg_raw(INTMASK, demux_irq_mask);
 	
 exit:
-	spin_unlock_irqrestore(&demux_irq_lock, flags);
+	local_irq_restore(flags);
 }
 
 static void demux_disable_irq(int demux_irq)
@@ -1878,12 +1923,12 @@ static void demux_disable_irq(int demux_irq)
 	if(demux_irq >= STBx25xx_DEMUX1_IRQ_COUNT || demux_irq < 0)
 		return;
 
-	spin_lock_irqsave(&demux_irq_lock, flags);
+	local_irq_save(flags);
 		
 	demux_irq_mask &= ~((1 << 31) >> demux_irq);
 	set_demux_reg_raw(INTMASK, demux_irq_mask);
 	
-	spin_unlock_irqrestore(&demux_irq_lock, flags);
+	local_irq_restore(flags);
 }
 
 static void demux_set_handler(int demux_irq, demux_irq_handler_t demux_handler)
@@ -1902,9 +1947,7 @@ static int demux_init_irq(struct stbx25xx_dvb_dev *dvb)
 	int ret = 0;
 	
 	memset(irq_handler_table, 0, sizeof(demux_irq_handler_t) * STBx25xx_DEMUX1_IRQ_COUNT);
-	
-	spin_lock_init(&demux_irq_lock);
-	
+		
 	demux_irq_mask		= 0;
 	demux_queues_irq_mask	= 0;
 	demux_festat_irq_mask	= 0;
@@ -2121,9 +2164,7 @@ int stbx25xx_demux_write_to_decoder(struct dvb_demux_feed *feed,
 int stbx25xx_demux_init(struct stbx25xx_dvb_dev *dvb)
 {
 	int ret;
-	
-	spin_lock_init(&demux_dcr_lock);
-	
+		
 	/* Init the filter block allocator */
 	demux_init_section_filters();
 	
