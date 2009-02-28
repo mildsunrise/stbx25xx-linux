@@ -19,8 +19,10 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/*
 #define DEBUG	10
 #define DBG_LEVEL 1
+*/
 
 #include <linux/interrupt.h>
 #include <linux/spinlock.h>
@@ -457,13 +459,10 @@ static void demux_disable_sync(void)
 	Hardware part of queues code
 **/
 
-static struct mutex queues_mutex;
 static struct list_head queues_list;
 static struct demux_queue demux_queues[STBx25xx_QUEUE_COUNT];
-static u32 demux_queues_irq_mask = 0;
-static u32 demux_qstat_irq_mask = 0;
-static u32 active_queues;
-static u32 running_queues;
+static volatile u32 demux_queues_irq_mask = 0;
+static volatile u32 demux_qstat_irq_mask = 0;
 
 #if 0
 /*
@@ -539,12 +538,11 @@ static void demux_enable_queue_irq(int queue)
 {
 	unsigned long flags;
 
-	if(queue > 31)
-		return;
+	BUG_ON(queue > 31);
 	
 	local_irq_save(flags);
 	
-	demux_queues_irq_mask |= (1 << 31) >> queue;
+	demux_queues_irq_mask |= 1 << (31 - queue);
 	set_demux_reg_raw(QINTMSK, demux_queues_irq_mask);
 	
 	local_irq_restore(flags);
@@ -558,12 +556,11 @@ static void demux_disable_queue_irq(int queue)
 {
 	unsigned long flags;
 	
-	if(queue > 31)
-		return;
+	BUG_ON(queue > 31);
 	
 	local_irq_save(flags);
 	
-	demux_queues_irq_mask &= ~((1 << 31) >> queue);
+	demux_queues_irq_mask &= ~(1 << (31 - queue));
 	set_demux_reg_raw(QINTMSK, demux_queues_irq_mask);
 	
 	local_irq_restore(flags);
@@ -617,7 +614,7 @@ static void demux_stop_queue(int queue)
 {
 	u32 reg;
 	
-	reg = (1 << 31) >> queue;
+	reg = 1 << (31 - queue);
 	set_demux_reg_raw(QSTOPS, reg);
 }
 
@@ -629,7 +626,7 @@ static void demux_reset_queue(int queue)
 {
 	u32 reg;
 	
-	reg = (1 << 31) >> queue;
+	reg = 1 << (31 - queue);
 	set_demux_reg_raw(QRESETS, reg);
 }
 
@@ -658,58 +655,58 @@ static void demux_set_read_ptr(struct demux_queue *queue, u32 rp)
  * demux_config_queue()
  * Configure the queue and related PID filter according to stored settings
  */
-static void demux_config_queue(int queue)
+static void demux_config_queue(int num)
 {
 	stbx25xx_demux_val reg;
 	struct filter_block *block;
+	struct demux_queue *queue = &demux_queues[num];
 	
-	if(!(demux_queues[queue].config & QUEUE_CONFIG_ACTIVE)) {
+	if(!(queue->config & QUEUE_CONFIG_ACTIVE)) {
 		reg.raw		= 0;
-		reg.qcfga.strta	= (demux_queues[queue].phys_addr & 0xFFFFFF) >> DEMUX_QUEUE_BLOCK_SHFT;
-		reg.qcfga.stopa = ((demux_queues[queue].phys_addr + demux_queues[queue].size) & 0xFFFFFF) >> DEMUX_QUEUE_BLOCK_SHFT;
-		set_demux_reg(QCFGA(queue), reg);
-		dprintk("%s: Set QCFGA(%d) to 0x%08x\n", __func__, queue, reg.raw);
+		reg.qcfga.strta	= (queue->phys_addr & 0xFFFFFF) >> DEMUX_QUEUE_BLOCK_SHFT;
+		reg.qcfga.stopa = ((queue->phys_addr + queue->size) & 0xFFFFFF) >> DEMUX_QUEUE_BLOCK_SHFT;
+		set_demux_reg(QCFGA(num), reg);
+		dprintk("%s: Set QCFGA(%d) to 0x%08x\n", __func__, num, reg.raw);
 		
-		if(queue > 23 && queue < 28)
-			set_demux_reg_raw(TSHM(queue), 0);
+		if(num > 23 && num < 28)
+			set_demux_reg_raw(TSHM(num), 0);
 		
 //		set_demux_reg_raw(QSTATB(queue), demux_queues[queue].phys_addr & 0xFFFFFF);
 		
 		reg.raw		= 0;
-		reg.qcfgb.rp	= (demux_queues[queue].size) >> 8;
-		reg.qcfgb.apus	= (demux_queues[queue].config & QUEUE_CONFIG_APUS) != 0;
-		reg.qcfgb.dt	= demux_queues[queue].config & QUEUE_CONFIG_TYPE_MASK;
-		reg.qcfgb.enbl	= (demux_queues[queue].config & QUEUE_CONFIG_EN) != 0;
+		reg.qcfgb.rp	= (queue->size) >> 8;
+		reg.qcfgb.apus	= (queue->config & QUEUE_CONFIG_APUS) != 0;
+		reg.qcfgb.dt	= queue->config & QUEUE_CONFIG_TYPE_MASK;
+		reg.qcfgb.enbl	= (queue->config & QUEUE_CONFIG_EN) != 0;
 		reg.qcfgb.scpc	= 1;
 		
-		if(demux_queues[queue].config & QUEUE_CONFIG_SECFLT) {
-			block = list_first_entry(&demux_queues[queue].filters, struct filter_block, list);
+		if(queue->config & QUEUE_CONFIG_SECFLT) {
+			block = list_first_entry(&queue->filters, struct filter_block, list);
 			reg.qcfgb.fsf = block->index;
 		}
 		
-		set_demux_reg(QCFGB(queue), reg);
-		dprintk("%s: Set QCFGB(%d) to 0x%08x\n", __func__, queue, reg.raw);
+		set_demux_reg(QCFGB(num), reg);
+		dprintk("%s: Set QCFGB(%d) to 0x%08x\n", __func__, num, reg.raw);
 		
-		set_demux_reg_raw(QSTATA(queue), 0xFFFF);
+		set_demux_reg_raw(QSTATA(num), 0xFFFF);
 		
-		if(demux_queues[queue].config & QUEUE_CONFIG_SECFLT) {
-			set_demux_reg_raw(SFCHNG, (1 << 31) >> demux_queues[queue].handle);
-			while(get_demux_reg_raw(SFCHNG) & (1 << 31) >> demux_queues[queue].handle)
+		if(queue->config & QUEUE_CONFIG_SECFLT) {
+			set_demux_reg_raw(SFCHNG, 1 << (31 - queue->handle));
+			while(get_demux_reg_raw(SFCHNG) & (1 << (31 - queue->handle)))
 				udelay(10);
 		}
 		
-		demux_queues[queue].config |= QUEUE_CONFIG_ACTIVE;
-		active_queues |= 1 << (31 - queue);
+		queue->config |= QUEUE_CONFIG_ACTIVE;
 		
-		demux_enable_queue_irq(queue);
+		demux_enable_queue_irq(num);
 		
 		reg.raw		= 0;
-		reg.pid.de	= (demux_queues[queue].config & QUEUE_CONFIG_DE) != 0;
-		reg.pid.pesl	= (demux_queues[queue].config & QUEUE_CONFIG_PESL) != 0;
-		reg.pid.kid	= demux_queues[queue].key & 7;
-		reg.pid.pidv	= demux_queues[queue].pid & 0x1fff;
-		set_demux_reg(PIDFLT(queue), reg);
-		dprintk("%s: Set PIDFLT(%d) to 0x%08x\n", __func__, queue, reg.raw);
+		reg.pid.de	= (queue->config & QUEUE_CONFIG_DE) != 0;
+		reg.pid.pesl	= (queue->config & QUEUE_CONFIG_PESL) != 0;
+		reg.pid.kid	= queue->key & 7;
+		reg.pid.pidv	= queue->pid & 0x1fff;
+		set_demux_reg(PIDFLT(num), reg);
+		dprintk("%s: Set PIDFLT(%d) to 0x%08x\n", __func__, num, reg.raw);
 	}
 }
 
@@ -765,24 +762,18 @@ static int demux_video_channel_change(u16 pid)
 }
 
 /* demux_process_queue_irq */
-static void demux_process_queue_irq(int queue, u32 stat)
-{
-	unsigned long flags;
+static void demux_process_queue_irq(int num, u32 stat)
+{	
+	struct demux_queue *queue = &demux_queues[num];
 	
 	if(stat & QUEUE_RPI)
-		dprintk("%s: Queue %d Read Pointer Interrupt\n", __func__, queue);
-	
-	if(stat & QUEUE_PCSC) {
-		demux_scpc_disable(queue);
+		warn("%s: Queue %d Read Pointer Interrupt (stopped to avoid overflow)\n", __func__, num);
+	/* TODO: Handle the RPI */
+
+	if((stat & QUEUE_PCSC) || (stat & QUEUE_BTI)) {
+//		dprintk("%s: Queuing queue %d work\n", __func__, num);
+		queue_work(queue->workqueue, &queue->work);
 	}
-	
-	if(stat & QUEUE_FP) {
-		local_irq_save(flags);
-		running_queues |= 1 << (31 - queue);
-		local_irq_restore(flags);
-	}
-	
-	set_demux_reg_raw(QSTATA(queue), stat);
 }
 
 /*
@@ -792,6 +783,8 @@ static void demux_process_queue_irq(int queue, u32 stat)
 /**
 	Software part of queues code
 */
+
+static struct mutex queues_mutex;
 
 #define DEBUG_LISTS
 
@@ -824,11 +817,7 @@ static void demux_free_queue(struct demux_queue *queue)
 	list_add_tail(&queue->list, &queues_list);
 }
 
-/*
- * demux_submit_data()
- * Submit data to apropriate callback function
- */
-
+/* struct sec_hdr used to determine section length */
 struct sec_hdr {
 	u8 sect_id;
 	u8 size1;
@@ -836,7 +825,12 @@ struct sec_hdr {
 	u8 zero;
 } __attribute__((packed));
 
-static void demux_section_callback(struct demux_queue *queue, void *buf, size_t size, void *buf2, size_t size2)
+/*
+ * demux_section_callback()
+ * CALLBACK used for section data
+ * (streaming-ready)
+ */ 
+static size_t demux_section_callback(struct demux_queue *queue, void *buf, size_t size, void *buf2, size_t size2)
 {
 	struct sec_hdr hdr;
 	size_t psize;
@@ -844,198 +838,190 @@ static void demux_section_callback(struct demux_queue *queue, void *buf, size_t 
 	if(!size2)
 		buf2 = NULL;
 	
-	while(size) {
-		dprintk("buf=%p, size=%d, buf2=%p, size2=%d\n", buf, size, buf2, size2);
-		
-		/* Skip the match word for now */
-		if(size > 4) {
-			buf += 4;
-			size -= 4;
-		} else {
-			size2 -= 4 - size;
-			buf2 += 4 - size;
-			buf = buf2;
-			size = size2;
-			buf2 = NULL;
-			size2 = 0;
-		}
-		/* TODO: Implement multiple filters support and match word handling */
-		
-		if(size >= 3) {
-			memcpy(&hdr, buf, 3);
-		} else {
-			if(size)
-				memcpy(&hdr, buf, size);
-			memcpy(&hdr + size, buf2, 3 - size);
-		}
-		
-		psize = ((hdr.size1 & 0x0f) << 8) | hdr.size2;
-		psize += 3;
-		
-		if(size > psize) {
-			queue->feed->cb.sec(buf, size, NULL, 0, &queue->feed->filter->filter, DMX_OK);
-			size -= psize;
-			buf += psize;
-		} else {
-			if(size == psize)
-				queue->feed->cb.sec(buf, size, NULL, 0,
-						     &queue->feed->filter->filter, DMX_OK);
-			else
-				queue->feed->cb.sec(buf, size, buf2, psize - size,
-						     &queue->feed->filter->filter, DMX_OK);
-			size2 -= psize - size;
-			buf2 += psize - size;
-			buf = buf2;
-			size = size2;
-			buf2 = NULL;
-			size2 = 0;
-		}
-		
-		if((u32)buf % 4) {
-			size -= 4 - ((u32)buf % 4);
-			buf += 4 - ((u32)buf % 4);
-		}
+	if(size + size2 < 7)
+		return 0;
+	
+	/* Skip the match word for now */
+	if(size > 4) {
+		buf += 4;
+		size -= 4;
+	} else {
+		size2 -= 4 - size;
+		buf2 += 4 - size;
+		buf = buf2;
+		size = size2;
+		buf2 = NULL;
+		size2 = 0;
 	}
+	/* TODO: Implement multiple filters support and match word handling */
+	
+	if(size >= 3) {
+		memcpy(&hdr, buf, 3);
+	} else {
+		if(size)
+			memcpy(&hdr, buf, size);
+		memcpy(&hdr + size, buf2, 3 - size);
+	}
+	
+	psize = ((hdr.size1 & 0x0f) << 8) | hdr.size2;
+	psize += 3;
+	
+	if(size + size2 < psize)
+		return 0;
+	
+	if(size >= psize) {
+		queue->feed->cb.sec(buf, psize, NULL, 0, &queue->feed->filter->filter, DMX_OK);
+	} else {
+		queue->feed->cb.sec(buf, size, buf2, psize - size, 
+				     &queue->feed->filter->filter, DMX_OK);
+	}
+	
+	if(psize % 4) {
+		psize -= psize % 4;
+		psize += 4;
+	}
+	
+	return psize + 4;
 }
 
-static void demux_ts_pes_callback(struct demux_queue *queue, void *buf, size_t size, void *buf2, size_t size2)
+/*
+ * demux_ts_pes_callback()
+ * CALLBACK used for TS/PES data
+ * (Boundary Threshold Interrupt ready)
+ */
+static size_t demux_ts_pes_callback(struct demux_queue *queue, void *buf, size_t size, void *buf2, size_t size2)
 {
 	if(!size2)
 		buf2 = NULL;
 	
-	queue->feed->cb.ts(buf, size, buf2, size2, &queue->feed->feed.ts, DMX_OK);	
+	queue->feed->cb.ts(buf, size, buf2, size2, &queue->feed->feed.ts, DMX_OK);
+	
+	return size + size2;
 }
 
-static void demux_swdemux_callback(struct demux_queue *queue, void *buf, size_t size, void *buf2, size_t size2)
+/* 
+ * demux_swdemux_callback()
+ * CALLBACK used for software demuxing
+ * (Boundary Threshold Interrupt ready)
+ */
+static size_t demux_swdemux_callback(struct demux_queue *queue, void *buf, size_t size, void *buf2, size_t size2)
 {
-	u32 packets;
+	u8 packet[188];
 	
-	if(!size2) {
-		dvb_dmx_swfilter_packets(queue->demux, buf, size / 188);
+	if(size + size2 < 188)
+		return 0;
+
+	if(size >= 188) {
+		dvb_dmx_swfilter_packets(queue->demux, buf, 1);
 	} else {
-		packets = size / 188;
-		if(packets)
-			dvb_dmx_swfilter_packets(queue->demux, buf, packets);
-		
-		size -= packets * 188;
-		buf += packets * 188;
-		
-		dvb_dmx_swfilter(queue->demux, buf, size);
-		dvb_dmx_swfilter(queue->demux, buf2, 188 - size);
-		
-		size2 -= 188 - size;
-		buf2 += 188 - size;
-		
-		packets = size2 / 188;
-		if(packets)
-			dvb_dmx_swfilter_packets(queue->demux, buf2, packets);
+		memcpy(packet, buf, size);
+		memcpy(packet + size, buf2, 188 - size);
+		dvb_dmx_swfilter_packets(queue->demux, packet, 1);
 	}
+	
+	return 188;
 }
 
 /*
- * demux_unloading_task()
- * Task unloading data from a single queue (so up to 32 tasks)
- * NOTE: Running as a tasklet
+ * demux_get_data()
+ * Function unloading data from a single queue (so up to 32 tasks)
+ * NOTE: Running as a work in a workqueue shared with all 32 queues
  */
-static void demux_unloading_task(unsigned long data)
+static void demux_get_data(struct work_struct *work)
 {
-	struct demux_queue * queue = (struct demux_queue *)data;
+	struct demux_queue * queue = container_of(work, struct demux_queue, work);
 	int error = 0;
 	phys_addr_t write_ptr, read_ptr;
-	size_t data_avl, data_avl2;
+	size_t data_avl, data_avl2, data_read = 0;
+	unsigned long flags;
+	int stopping;
 
-//	dprintk("%s: Queue %d unloader task started\n", __func__, queue->handle);
-	while(1) {
+	read_ptr = queue_to_phys(queue, queue->ptr);
+	write_ptr = demux_get_write_ptr(queue);
 
-		read_ptr = queue_to_phys(queue, queue->ptr);
-		write_ptr = demux_get_write_ptr(queue);
+	if(read_ptr > ((queue->phys_addr + queue->size) & 0xFFFFFF))
+		error = 1;
+	else if(read_ptr < (queue->phys_addr & 0xFFFFFF))
+		error = 1;
+	else if(write_ptr > ((queue->phys_addr + queue->size) & 0xFFFFFF))
+		error = 1;
+	else if(write_ptr < (queue->phys_addr & 0xFFFFFF))
+		error = 1;
 
-		if(read_ptr > ((queue->phys_addr + queue->size) & 0xFFFFFF))
-			error = 1;
-		else if(read_ptr < (queue->phys_addr & 0xFFFFFF))
-			error = 1;
-		else if(write_ptr > ((queue->phys_addr + queue->size) & 0xFFFFFF))
-			error = 1;
-		else if(write_ptr < (queue->phys_addr & 0xFFFFFF))
-			error = 1;
-
-		if(error) {
-			dprintk("%s: Queue %d fatal error: read_ptr = 0x%08x, write_ptr = 0x%08x\n",
-					__func__, queue->handle, read_ptr, write_ptr);
-			return;
-		}
-
-	//	dprintk("%s: Queue %d: read_ptr = 0x%08x, write_ptr = 0x%08x\n", __func__, queue->handle, read_ptr, write_ptr);
-
-		if(read_ptr <= write_ptr) {
-			data_avl = write_ptr - read_ptr;
-			data_avl2 = 0;
-		} else {
-			data_avl2 = (write_ptr - queue->phys_addr);
-			data_avl = (queue->phys_addr + queue->size - read_ptr);
-		}
-
-		/* Check if there is data ready in the queue */
-		if(!data_avl) {
-			demux_scpc_enable(queue->handle);
-			return;
-		} else {
-			/* Data available, so get it */
-
-	//		dprintk("%s: Unloading %d bytes of queue %d data from %p\n",
-	//			__func__, data_avl, queue->handle, queue->ptr);
-
-			if(queue->cb)
-				queue->cb(queue, queue->ptr, data_avl, queue->addr, data_avl2);
-			
-			queue->ptr += data_avl + data_avl2;
-			queue->data_count += data_avl + data_avl2;
-
-			if(queue->ptr >= queue->addr + queue->size)
-				queue->ptr -= queue->size;
-
-			read_ptr = queue_to_phys(queue, queue->ptr);			
-			demux_set_read_ptr(queue, read_ptr);
-		}
-	
+	if(error) {
+		err("%s: Queue %d fatal error: read_ptr = 0x%08x, write_ptr = 0x%08x",
+				__func__, queue->handle, read_ptr, write_ptr);
+		return;
 	}
-//	dprintk("%s: Queue %d unloader task finished (transered %d bytes of data)\n", __func__, queue->handle, data_count);
+
+	if(read_ptr <= write_ptr) {
+		data_avl = write_ptr - read_ptr;
+		data_avl2 = 0;
+	} else {
+		data_avl2 = (write_ptr - queue->phys_addr);
+		data_avl = (queue->phys_addr + queue->size - read_ptr);
+	}
+
+	/* Check if there is data ready in the queue */
+	if(data_avl) {
+		/* Data available, so get it */
+		if(queue->cb)
+			data_read = queue->cb(queue, queue->ptr, data_avl, queue->addr, data_avl2);
+		else
+			data_read = data_avl + data_avl2;
+		
+		queue->ptr += data_read;
+		queue->data_count += data_read;
+
+		if(queue->ptr >= queue->addr + queue->size)
+			queue->ptr -= queue->size;
+
+		read_ptr = queue_to_phys(queue, queue->ptr);			
+		demux_set_read_ptr(queue, read_ptr);
+		
+		if(data_read < (data_avl + data_avl2)) {
+			/* Requeue the work */
+			local_irq_save(flags);
+			
+			stopping = queue->config & QUEUE_CONFIG_STOPPING;
+			if(!stopping)
+				queue_work(queue->workqueue, &queue->work);
+			
+			local_irq_restore(flags);
+		}
+	}
 }
 
 /*
  * demux_remove_queue()
  * Disable the queue and related filter, flush all data and free the memory
  */
-static int demux_remove_queue(int queue)
-{
+static int demux_remove_queue(int num)
+{	
+	struct demux_queue *queue = &demux_queues[num];
 	unsigned long flags;
 	
-	BUG_ON(!demux_queues[queue].size);
+	BUG_ON(!queue->size);
 	
-	if(demux_queues[queue].size) {
-		dprintk("%s: Removing queue %d\n", __func__, queue);
-		
-		/* Stop the hardware */
-		demux_stop_queue(queue);
-		demux_disable_queue_irq(queue);
-		
-		dprintk("%s: Waiting for queue %d unloader to terminate...\n", __func__, queue);
+	dprintk("%s: Removing queue %d\n", __func__, num);
 	
-		active_queues &= ~(1 << (31 - queue));
-		tasklet_disable(&demux_queues[queue].tasklet);
-		
-		local_irq_save(flags);
-		running_queues &= ~(1 << (31 - queue));
-		local_irq_restore(flags);
-		
-		reset_queue_config(queue);		
-		queues_pool_free(demux_queues[queue].addr, demux_queues[queue].size);
-		
-		dprintk("%s: Queue %d removed (transfered %d bytes of data)\n",
-			 __func__, queue, demux_queues[queue].data_count);
-		
-		demux_free_queue(&demux_queues[queue]);
-	}
+	/* Stop the queue */
+	demux_stop_queue(num);
+	demux_disable_queue_irq(num);
+	
+	local_irq_save(flags);
+	queue->config |= QUEUE_CONFIG_STOPPING;
+	local_irq_restore(flags);
+	
+	dprintk("%s: Cancelling queue %d work...\n", __func__, num);
+	cancel_work_sync(&queue->work);
+	dprintk("%s: Queue %d work cancelled.\n", __func__, num);
+	
+	set_demux_reg_raw(PIDFLT(num), 0x1fff);	
+	queues_pool_free(queue->addr, queue->size);
+	
+	dprintk("%s: Queue %d removed (transfered %d bytes of data)\n",
+			__func__, num, queue->data_count);
 	
 	return 0;
 }
@@ -1075,8 +1061,10 @@ static int demux_remove_user_queue(struct dvb_demux_feed *feed)
 		}
 	}
 	
-	if(!demux_queues[queue].feed && queue < 30)
+	if(!demux_queues[queue].feed && queue < 30) {
 		ret = demux_remove_queue(queue);
+		demux_free_queue(&demux_queues[queue]);
+	}
 	
 	mutex_unlock(&queues_mutex);
 	
@@ -1101,21 +1089,19 @@ static int demux_install_queue(int queue, u32 pid, u32 blocks, u16 config, u16 k
 	}
 	
 	if(queues_pool_freemem() < blocks * DEMUX_QUEUE_BLOCK_SIZE) {
-		dprintk("%s: Not enough memory for queue\n", __func__);
+		err("%s: Not enough memory for queue", __func__);
 		ret = -ENOMEM;
 		goto exit;
 	}
 	
 	demux_queues[queue].addr = queues_pool_alloc(blocks * DEMUX_QUEUE_BLOCK_SIZE, &demux_queues[queue].phys_addr);
 	if(demux_queues[queue].addr == NULL) {
-		dprintk("%s: Couldn't allocate memory for queue\n", __func__);
+		err("%s: Couldn't allocate memory for queue", __func__);
 		ret = -ENOMEM;
 		goto exit;
 	}
 	dprintk("%s: Allocated queue %d to 0x%08x mapped at %p\n", __func__, queue, demux_queues[queue].phys_addr, demux_queues[queue].addr);
-	
-	tasklet_init(&demux_queues[queue].tasklet, demux_unloading_task, (unsigned long)&demux_queues[queue]);
-	
+		
 	demux_queues[queue].size	= blocks * DEMUX_QUEUE_BLOCK_SIZE;
 	demux_queues[queue].config	= config & ~QUEUE_CONFIG_ACTIVE;
 	demux_queues[queue].pid		= pid;
@@ -1158,7 +1144,7 @@ static int demux_install_system_queue(int queue, u32 pid, u32 blocks, u16 config
 		return -EINVAL;
 	
 	if(mutex_lock_killable(&queues_mutex)) {
-			err("demux_install_system_queue: Received a fatal signal, exiting...\n");
+			err("demux_install_system_queue: Received a fatal signal, exiting...");
 			return -ERESTARTSYS;
 	}
 	
@@ -1254,13 +1240,13 @@ static int demux_init_queues(struct stbx25xx_dvb_dev *dvb)
 			list_add_tail(&demux_queues[i].list, &queues_list);
 		
 		INIT_LIST_HEAD(&demux_queues[i].filters);
+		INIT_WORK(&demux_queues[i].work, demux_get_data);
+		sprintf(demux_queues[i].name, "stbdemuxd%d", i);
+		demux_queues[i].workqueue = create_singlethread_workqueue(demux_queues[i].name);
 	}
 	
-	active_queues = 0;
-	running_queues = 0;
-	
 	if((ret = queues_pool_init(DEMUX_QUEUES_BASE, queues_base, DEMUX_QUEUES_SIZE)) != 0)
-		goto error_pool;
+		return ret;
 		
 	demux_set_queues_base_ptr(DEMUX_QUEUES_BASE);
 	demux_unmask_qstat_irq(QUEUE_RPI | QUEUE_PCSC);
@@ -1269,9 +1255,6 @@ static int demux_init_queues(struct stbx25xx_dvb_dev *dvb)
 	demux_install_system_queue(DEMUX_VIDEO_QUEUE, 0x1FFF, 16, 0, 0);
 	
 	return 0;
-
-error_pool:
-	return ret;
 }
 
 /* demux_queues_deinit */
@@ -1282,12 +1265,14 @@ static void demux_queues_deinit(void)
 	demux_mask_qstat_irq(0xFFFFFFFF);
 	
 	for(i=0; i<STBx25xx_QUEUE_COUNT; i++) {		
-		if(demux_queues[i].size)
+		if(demux_queues[i].size) {
 			demux_remove_queue(i);
+			demux_free_queue(&demux_queues[i]);
+		}
+		destroy_workqueue(demux_queues[i].workqueue);
 	}
 	
 	demux_set_queues_base_ptr(0);
-	
 	queues_pool_deinit();
 }
 
@@ -1308,7 +1293,7 @@ static struct filter_block *demux_alloc_filter_block(void)
 	struct filter_block *entry;
 	
 	if(down_killable(&filter_block_list_sem)) {
-			err("%s: Received a fatal signal, exiting...\n", __func__);
+			err("%s: Received a fatal signal, exiting...", __func__);
 			return NULL;
 	}
 	
@@ -1333,7 +1318,7 @@ static void demux_free_filter_block(struct filter_block *block)
 	struct filter_block *pos;
 #endif
 	if(down_killable(&filter_block_list_sem)) {
-			err("%s: Received a fatal signal, exiting...\n", __func__);
+			err("%s: Received a fatal signal, exiting...", __func__);
 			return;
 	}
 	
@@ -1406,17 +1391,20 @@ static int demux_install_section_filter(struct dvb_demux_feed *feed)
 	
 found:
 	if(queue->pid != 0x1fff) {
-		dprintk("%s: Duplicating PID values unallowed.\n", __func__);
+		err("%s: Duplicating PID values unallowed.", __func__);
 		ret = -EINVAL;
 		goto exit;
 	}
 	
+/*
+#define STBx25xx_SW_SECT_FILT
+*/
 #ifdef STBx25xx_SW_SECT_FILT
 	
 	feed->priv = NULL;
 	queue->feed = feed;
 	
-	ret = demux_install_queue(queue->handle, feed->pid, 16, QCFG_DT_TSPKT | QUEUE_CONFIG_EN | QUEUE_CONFIG_SWDEMUX | QUEUE_CONFIG_APUS, 0);
+	ret = demux_install_queue(queue->handle, feed->pid, 16, QCFG_DT_TSPKT | QUEUE_CONFIG_EN | QUEUE_CONFIG_SWDEMUX, 0);
 	if(ret)
 		demux_free_queue(queue);
 	
@@ -1567,6 +1555,8 @@ static int demux_remove_section_filter(struct dvb_demux_feed *feed)
 					list_del(&block->list);
 					demux_free_filter_block(block);
 			}
+			
+		demux_free_queue(&demux_queues[queue]);
 	}
 	
 	mutex_unlock(&queues_mutex);
@@ -1860,7 +1850,26 @@ static void demux_frontend_irq_handler(struct stbx25xx_dvb_dev *dvb)
 	reg.raw &= demux_festat_irq_mask;
 	set_demux_reg(FESTAT, reg);
 	
-	dprintk("%s: IRQ = 0x%08x\n", __func__, reg.raw);
+	if(reg.festat.tshe)
+		warn("TS Header Error!");
+	
+	if(reg.festat.pbo)
+		warn("Packet Buffer Overflow!");
+	
+	if(reg.festat.tse)
+		warn("Transport Stream Error!");
+	
+	if(reg.festat.vpo)
+		warn("Video Packet Overflow!");
+	
+	if(reg.festat.apo)
+		warn("Audio Packet Overflow!");
+	
+	if(reg.festat.qpo)
+		warn("Queue Packet Overflow!");
+	
+	if(reg.festat.mpfm)
+		warn("Multiple PID Filter Matches!");
 }
 
 /*
@@ -1887,9 +1896,12 @@ static void demux_queues_irq_handler(struct stbx25xx_dvb_dev *dvb)
 	u32 mask = get_demux_reg_raw(QINT) & demux_queues_irq_mask;
 	set_demux_reg_raw(QINT, mask);
 	
+//	dprintk("%s: demux_queues_irq_mask = 0x%08x\n", __func__, demux_queues_irq_mask);
+	
 	for(i=STBx25xx_QUEUE_COUNT-1; i>=0 && mask; i--, mask>>=1) {
 		if(mask & 1) {
 			reg = get_demux_reg_raw(QSTATA(i)) & demux_qstat_irq_mask;
+			set_demux_reg_raw(QSTATA(i), reg & ~QUEUE_RPI);
 			demux_process_queue_irq(i, reg);
 		}
 	}
@@ -1909,7 +1921,7 @@ static void demux_enable_irq(int demux_irq)
 		goto exit;
 	}
 	
-	demux_irq_mask |= (1 << 31) >> demux_irq;
+	demux_irq_mask |= 1 << (31 - demux_irq);
 	set_demux_reg_raw(INTMASK, demux_irq_mask);
 	
 exit:
@@ -1925,7 +1937,7 @@ static void demux_disable_irq(int demux_irq)
 
 	local_irq_save(flags);
 		
-	demux_irq_mask &= ~((1 << 31) >> demux_irq);
+	demux_irq_mask &= ~(1 << (31 - demux_irq));
 	set_demux_reg_raw(INTMASK, demux_irq_mask);
 	
 	local_irq_restore(flags);
@@ -1969,7 +1981,7 @@ static int demux_init_irq(struct stbx25xx_dvb_dev *dvb)
 	
 	demux_set_handler(DEMUX_IRQ_FRONTEND, demux_frontend_irq_handler);
 	demux_enable_irq(DEMUX_IRQ_FRONTEND);
-	demux_festat_irq_mask |= 3;
+	demux_festat_irq_mask |= 0x1f28;
 	set_demux_reg_raw(FEIMASK, demux_festat_irq_mask);
 	
 	demux_set_handler(DEMUX_IRQ_QUEUES, demux_queues_irq_handler);

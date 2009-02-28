@@ -45,7 +45,7 @@
 
 	memory {
 		device_type = "memory";
-		reg = <0x00000000 0x04000000>; /* Filled in by zImage */
+		reg = <0x00000000 0x03c00000>;
 	};
 
 	UIC0: interrupt-controller {

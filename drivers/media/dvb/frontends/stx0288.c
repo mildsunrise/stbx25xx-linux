@@ -472,8 +472,8 @@ static int stx0288_read_snr(struct dvb_frontend *fe, u16 *snr)
 {
 	struct stx0288_state *state = fe->demodulator_priv;
 
-	s32 xsnr = 0xffff - ((stx0288_readreg(state, 0x2d) << 8)
-			   | stx0288_readreg(state, 0x2e));
+	s32 xsnr = 0xffff - ((stx0288_readreg(state, R288_NIRM) << 8)
+			   | stx0288_readreg(state, R288_NIRL));
 	xsnr = 3 * (xsnr - 0xa100);
 	*snr = (xsnr > 0xffff) ? 0xffff : (xsnr < 0) ? 0 : xsnr;
 	dprintk("stx0288_read_snr %d\n", *snr);

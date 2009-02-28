@@ -170,17 +170,20 @@ struct demux_queue {
 #define QUEUE_CONFIG_EN		(1 << 8)
 #define QUEUE_CONFIG_SECFLT	(1 << 9)
 #define QUEUE_CONFIG_SWDEMUX	(1 << 10)
+#define QUEUE_CONFIG_STOPPING	(1 << 11)
 #define QUEUE_CONFIG_ACTIVE	(1 << 15)
 	u16 config;
 	u8 key;
 	u32 data_count;
 	spinlock_t lock;
-	struct tasklet_struct tasklet;
+	struct work_struct work;
+	struct workqueue_struct *workqueue;
+	char name[32];
 	struct dvb_demux_feed *feed;
 	struct dvb_demux *demux;
 	struct list_head filters;
 	struct list_head list;
-	void (*cb)(struct demux_queue *, void *, size_t, void *, size_t);
+	size_t (*cb)(struct demux_queue *, void *, size_t, void *, size_t);
 };
 
 struct filter_block {

@@ -17,6 +17,11 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ * The driver relies on following assumptions:
+ * - fb0 is a generic framebuffer running in 8-bit indexed mode
+ * - fb1 is an extended hardware-specific framebuffer running in 16-bit direct color mode
+ * - more to come...
  */
 
 #include "stbx25xx_common.h"

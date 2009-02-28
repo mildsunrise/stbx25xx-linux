@@ -9,7 +9,7 @@
 #ifndef __STBx25xx_VIDEO_H__
 #define __STBx25xx_VIDEO_H__
 
-//#include "stbx25xx_video_val.h"
+#include "stbx25xx_video_val.h"
 
 /* Interrupts */
 #define VIDEO_IRQ	3
