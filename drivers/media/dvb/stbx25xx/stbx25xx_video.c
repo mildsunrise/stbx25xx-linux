@@ -53,6 +53,56 @@ static stbx25xx_video_val def_osd_mode = {
 
 static stbx25xx_video_val display_mode; /* Running parameters */
 
+struct stbx25xx_video_cmd {
+	u8 cmd;
+	u8 cnt;
+	u16 *par;
+};
+
+static void video_issue_cmd(struct stbx25xx_video_cmd *cmd)
+{
+	unsigned long flags;
+	int i;
+	
+	local_irq_save(flags);
+	
+	while(get_video_reg_raw(CMD_STAT) & 1);
+	
+	set_video_reg_raw(CMD, cmd->cmd << 1);
+	for(i=0; i<cmd->cnt; i++) {
+		set_video_reg_raw(CMD_ADDR, i);
+		set_video_reg_raw(CMD_DATA, cmd->par[i]);
+	}
+	set_video_reg_raw(CMD_STAT, 1);
+	
+	while(get_video_reg_raw(CMD_STAT) & 1);
+	
+	local_irq_restore(flags);
+}
+
+static void video_issue_cmds(struct stbx25xx_video_cmd *cmds, u8 count)
+{
+	unsigned long flags;
+	int i, j;
+	
+	local_irq_save(flags);
+	
+	for(j = 0; j < count; j++) {
+		while(get_video_reg_raw(CMD_STAT) & 1);
+		
+		set_video_reg_raw(CMD, cmds[j].cmd << 1);
+		for(i = 0; i < cmds[j].cnt; i++) {
+			set_video_reg_raw(CMD_ADDR, i);
+			set_video_reg_raw(CMD_DATA, cmds[j].par[i]);
+		}
+		set_video_reg_raw(CMD_STAT, 1);
+	}
+	
+	while(get_video_reg_raw(CMD_STAT) & 1);
+	
+	local_irq_restore(flags);
+}
+
 /**
 	Hardware setup
 */
@@ -254,57 +304,6 @@ int stbx25xx_video_ioctl(struct inode *inode, struct file *file, unsigned int cm
 /**
 	Module init/exit
 */
-
-struct stbx25xx_video_cmd {
-	u8 cmd;
-	u8 cnt;
-	u16 *par;
-};
-
-static void video_issue_cmd(struct stbx25xx_video_cmd *cmd)
-{
-	unsigned long flags;
-	int i;
-	
-	local_irq_save(flags);
-	
-	while(get_video_reg_raw(CMD_STAT) & 1);
-	
-	set_video_reg_raw(CMD, cmd->cmd << 1);
-	for(i=0; i<cmd->cnt; i++) {
-		set_video_reg_raw(CMD_ADDR, i);
-		set_video_reg_raw(CMD_DATA, cmd->par[i]);
-	}
-	set_video_reg_raw(CMD_STAT, 1);
-	
-	while(get_video_reg_raw(CMD_STAT) & 1);
-	
-	local_irq_restore(flags);
-}
-
-static void video_issue_cmds(struct stbx25xx_video_cmd *cmds, u8 count)
-{
-	unsigned long flags;
-	int i, j;
-	
-	local_irq_save(flags);
-	
-	for(j = 0; j < count; j++) {
-		while(get_video_reg_raw(CMD_STAT) & 1);
-		
-		set_video_reg_raw(CMD, cmds[j].cmd << 1);
-		for(i = 0; i < cmds[j].cnt; i++) {
-			set_video_reg_raw(CMD_ADDR, i);
-			set_video_reg_raw(CMD_DATA, cmds[j].par[i]);
-		}
-		set_video_reg_raw(CMD_STAT, 1);
-	}
-	
-	while(get_video_reg_raw(CMD_STAT) & 1);
-	
-	local_irq_restore(flags);
-}
-
 int stbx25xx_video_init(struct stbx25xx_dvb_dev *dvb)
 {
 	int ret;
