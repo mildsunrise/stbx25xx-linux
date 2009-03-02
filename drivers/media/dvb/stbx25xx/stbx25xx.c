@@ -42,6 +42,10 @@ extern int (*dvbdmx_disconnect_frontend)(struct dmx_demux *demux);
 extern int (*dvbdmx_connect_frontend)(struct dmx_demux *demux,
 				   struct dmx_frontend *frontend);
 
+/**
+	DVB Adapter Setup
+*/
+
 static int stbx25xx_dvb_init(struct stbx25xx_dvb_dev *dev)
 {
 	short num[1] = {-1};
@@ -151,6 +155,102 @@ static void stbx25xx_dvb_exit(struct stbx25xx_dvb_dev *dev)
 	dev->init_state &= ~FC_STATE_DVB_INIT;
 }
 
+/**
+	DVB Audio/Video Setup
+*/
+
+static struct file_operations stbx25xx_video_fops = {
+	.owner = THIS_MODULE,
+	.write = stbx25xx_video_write,
+	.ioctl = dvb_generic_ioctl,
+	.open = stbx25xx_video_open,
+	.release = stbx25xx_video_release,
+	.poll = stbx25xx_video_poll,
+};
+
+static struct dvb_device stbx25xx_video_dev = {
+	.priv = NULL,
+	.users = ~0,
+	.readers = ~0,
+	.writers = 1,
+	.fops = &stbx25xx_video_fops,
+	.kernel_ioctl = stbx25xx_video_ioctl,
+};
+
+static struct file_operations stbx25xx_audio_fops = {
+	.owner = THIS_MODULE,
+	.write = stbx25xx_audio_write,
+	.ioctl = dvb_generic_ioctl,
+	.open = stbx25xx_audio_open,
+	.release = stbx25xx_audio_release,
+	.poll = stbx25xx_audio_poll,
+};
+
+static struct dvb_device stbx25xx_audio_dev = {
+	.priv = NULL,
+	.users = ~0,
+	.readers = ~0,
+	.writers = 1,
+	.fops = &stbx25xx_audio_fops,
+	.kernel_ioctl = stbx25xx_audio_ioctl,
+};
+
+static int stbx25xx_dvb_av_init(struct stbx25xx_dvb_dev *dev)
+{
+	int result;
+
+	dev->aud_state.AV_sync_state = 0;
+	dev->aud_state.mute_state = 0;
+	dev->aud_state.play_state = AUDIO_STOPPED;
+	dev->aud_state.stream_source = AUDIO_SOURCE_DEMUX;
+	dev->aud_state.channel_select = AUDIO_STEREO;
+	dev->aud_state.bypass_mode = 1;
+	dev->aud_state.mixer_state.volume_left = 0;
+	dev->aud_state.mixer_state.volume_right = 0;
+
+	dev->vid_state.video_blank = 0;
+	dev->vid_state.play_state = VIDEO_STOPPED;
+	dev->vid_state.stream_source = VIDEO_SOURCE_DEMUX;
+	dev->vid_state.video_format = VIDEO_FORMAT_4_3;
+	dev->vid_state.display_format = VIDEO_CENTER_CUT_OUT;
+
+	init_waitqueue_head(&dev->aud_write_wq);
+	init_waitqueue_head(&dev->vid_write_wq);
+
+	init_waitqueue_head(&dev->vid_events.wait_queue);
+	spin_lock_init(&dev->vid_events.lock);
+	dev->vid_events.eventw = 0;
+	dev->vid_events.eventr = 0;
+	dev->vid_events.overflow = 0;
+
+	if ((result = dvb_register_device(&dev->dvb_adapter, &dev->video, &stbx25xx_video_dev, dev, DVB_DEVICE_VIDEO)) < 0) {
+		printk(KERN_ERR "%s: dvb_register_device (video) failed (errno = %d)\n", __FILE__, result);
+		goto fail_0;
+	}
+
+	if ((result = dvb_register_device(&dev->dvb_adapter, &dev->audio, &stbx25xx_audio_dev, dev, DVB_DEVICE_AUDIO)) < 0) {
+		printk(KERN_ERR "%s: dvb_register_device (audio) failed (errno = %d)\n", __FILE__, result);
+		goto fail_1;
+	}
+
+	return 0;
+
+fail_1:
+	dvb_unregister_device(dev->video);
+fail_0:
+	return result;
+}
+
+static void stbx25xx_dvb_av_exit(struct stbx25xx_dvb_dev *dev)
+{
+	dvb_unregister_device(dev->audio);
+	dvb_unregister_device(dev->video);
+}
+
+/**
+	Driver Setup
+*/
+
 static int stbx25xx_dvb_map_irqs(struct of_device *ofdev, struct stbx25xx_dvb_dev *dvb)
 {
 	struct device_node *np = ofdev->node;
@@ -204,6 +304,11 @@ static int stbx25xx_adapter_probe(struct of_device *dev, const struct of_device_
 		err("DVB initialization failed: error %d", ret);
 		goto dvb_error;
 	}
+	
+	if ((ret = stbx25xx_dvb_av_init(dvb_dev))) {
+		err("DVB A/V initialization failed: error %d", ret);
+		goto dvb_av_error;
+	}
 
 	if ((ret = stbx25xx_frontend_init(dvb_dev))) {
 		err("Front-end initialization failed: error %d", ret);
@@ -215,6 +320,8 @@ static int stbx25xx_adapter_probe(struct of_device *dev, const struct of_device_
 	return 0;
 
 frontend_error:
+	stbx25xx_dvb_av_exit(dvb_dev);
+dvb_av_error:
 	stbx25xx_dvb_exit(dvb_dev);
 dvb_error:	
 	stbx25xx_demux_exit(dvb_dev);
@@ -231,6 +338,7 @@ static int stbx25xx_adapter_remove(struct of_device *dev)
 	struct stbx25xx_dvb_dev *dvb_dev = platform_get_drvdata(dev);
 	
 	stbx25xx_frontend_exit(dvb_dev);
+	stbx25xx_dvb_av_exit(dvb_dev);
 	stbx25xx_dvb_exit(dvb_dev);
 	stbx25xx_demux_exit(dvb_dev);
 	stbx25xx_audio_exit(dvb_dev);
@@ -252,6 +360,10 @@ static struct of_platform_driver stbx25xx_dvb_driver = {
 		.name		= "stbx25xx-dvb",
 	},
 };
+
+/**
+	Module Init
+*/
 
 static int stbx25xx_adapter_module_init(void)
 {

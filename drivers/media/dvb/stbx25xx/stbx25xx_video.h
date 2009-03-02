@@ -9,18 +9,70 @@
 #ifndef __STBx25xx_VIDEO_H__
 #define __STBx25xx_VIDEO_H__
 
+#include <asm/dcr.h>
 #include "stbx25xx_video_val.h"
 
 /* Interrupts */
 #define VIDEO_IRQ	3
 
+/* Misc */
+#define VBI_LINES	16
+#define CLIP_COUNT	2	/* 2 clips for ping-pong buffer */
+
 /* Memory map */
-#define VIDEO_MPEG_BASE		0xA0000000	/* MPEG Video Decoder Memory */
-#define VIDEO_MPEG_SIZE		0x00400000	/* First 4 MB of the second memory bank */
-#define VIDEO_FB_BASE		0x03E00000	/* OSD Framebuffer Memory */
-#define VIDEO_FB_SIZE		0x00200000	/* Last 2 MB of the first memory bank */
+#define VIDEO_FB_BASE		0xA0000000	/* Video Framebuffers Memory */
+#define VIDEO_FB_SIZE		0x200000	/* First 2 MB of the second memory bank */
+#define VIDEO_MPEG_BASE		0xA0200000	/* MPEG Video Decoder Memory */
+#define VIDEO_MPEG_SIZE		0x200000	/* Second 2 MB of the second memory bank */
+#define VIDEO_OSD_BASE		0x03E00000	/* OSD Framebuffer Memory */
+#define VIDEO_OSD_SIZE		0x200000	/* Last 2 MB of the first memory bank */
+
+/* Video decoder segments */
+/* FB data */
+#define SEG0_BASE		VIDEO_FB_BASE
+#define SEG0_SIZE		1
+#define SEG0_ADDR		0x00000000
+/* MPEG data */
+#define SEG1_BASE		VIDEO_MPEG_BASE
+#define SEG1_SIZE		1
+#define SEG1_ADDR		(SEG0_ADDR + (0x100000 << SEG0_SIZE))
+/* OSD data */
+#define SEG2_BASE		VIDEO_OSD_BASE
+#define SEG2_SIZE		1
+#define SEG2_ADDR		(SEG1_ADDR + (0x100000 << SEG1_SIZE))
+
+/* Offset within Video memory */
+#define VFB_OFFSET		0x00000000
+#define VFB_SIZE		0x200000
+
+/* Offsets within OSD memory */
+#define FB0_OFFSET		0x00000000
+#define FB0_SIZE		0x100000
+#define FB1_OFFSET		(FB0_SIZE)
+#define FB1_SIZE		0xe0000
+#define CUR_OFFSET		(FB0_SIZE + FB1_SIZE)
+#define CUR_SIZE		0x10000
+
+/* Offsets within MPEG memory */
+#define	USER_OFFSET		0x00000000
+#define USER_SIZE		0x400
+#define VBI0_OFFSET		(USER_SIZE)
+#define VBI0_SIZE		(VBI_LINES*1440)
+#define VBI1_OFFSET		(USER_SIZE + VBI0_SIZE)
+#define VBI1_SIZE		(VBI_LINES*1440)
+#define RB_OFFSET		(USER_SIZE + VBI0_SIZE + VBI1_SIZE)
+#define RB_SIZE			(VIDEO_MPEG_SIZE - USER_SIZE - VBI0_SIZE - VBI1_SIZE)
+
+/* Video format definitions */
+#define VID_WIDTH		720
+#define VID_HEIGHT_PAL		576
+#define VID_HEIGHT_NTSC		480
+#define SCR_WIDTH		640
+#define SCR_HEIGHT_PAL		480
+#define SCR_HEIGHT_NTSC		400
 
 /* Registers */
+#define CICVCR			0x0033
 #define CLKGCRST		0x0122
 #define VIDEO_CNTL		0x0140
 #define VIDEO_MODE		0x0141
@@ -75,5 +127,35 @@
 #define SCALE_BORDER		0x017d
 #define VID0_ZOFFS		0x017e
 #define RATEBUF_SIZE		0x017f
+
+/* Firmware commands */
+#define CMD_PLAY		0
+#define CMD_PAUSE		1
+#define CMD_SINGLE		2
+#define CMD_FAST_FWD		3
+#define CMD_SLOW		4
+#define CMD_MOVE		5
+#define CMD_PANSCAN		6
+#define CMD_FREEZE		7
+#define CMD_RB_RST		8
+#define CMD_CFG			9
+#define CMD_SRV_INIT		10
+#define CMD_SRV_DISP		11
+#define CMD_SRV_DEL		12
+#define CMD_FRM_SW		13
+#define CMD_STILL		14
+#define CMD_SKIP		15
+
+#define set_video_reg(reg, val) \
+	mtdcr(reg, val.raw)
+	
+#define set_video_reg_raw(reg, val) \
+	mtdcr(reg, val)
+	
+#define get_video_reg(reg) \
+	((stbx25xx_video_val)mfdcr(reg))
+	
+#define get_video_reg_raw(reg) \
+	mfdcr(reg)
 
 #endif

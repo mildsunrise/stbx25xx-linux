@@ -4,6 +4,9 @@ config DVB_STBx25xx
 	select DVB_STV0288 if !DVB_FE_CUSTOMISE
 	select I2C
 	select I2C_STBx25xx
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
 	help
 	  Support for the digital TV receiver hardware included in
 	  IBM STBx25xx System-On-Chip.

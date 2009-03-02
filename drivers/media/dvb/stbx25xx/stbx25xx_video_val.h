@@ -19,6 +19,17 @@ typedef union {
 	u32 raw;
 	
 	struct {
+		unsigned	:8;
+		unsigned key	:2;
+		unsigned	:2;
+		unsigned video	:1;
+		unsigned	:1;
+		unsigned vidosd	:1;
+		unsigned	:16;
+		unsigned viddis	:1;
+	} cicvcr;
+	
+	struct {
 		unsigned	:16;
 		unsigned cv	:4;
 		unsigned vcm	:1;
@@ -135,8 +146,8 @@ typedef union {
 	
 	struct {
 		unsigned	:1;
-		unsigned seg4s	:3;
-		unsigned seg4a	:12:
+		unsigned seg1s	:3;
+		unsigned seg1a	:12;
 		unsigned	:1;
 		unsigned seg0s	:3;
 		unsigned seg0a	:12;

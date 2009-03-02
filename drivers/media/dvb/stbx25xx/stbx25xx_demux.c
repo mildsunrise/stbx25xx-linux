@@ -2176,6 +2176,8 @@ int stbx25xx_demux_write_to_decoder(struct dvb_demux_feed *feed,
 int stbx25xx_demux_init(struct stbx25xx_dvb_dev *dvb)
 {
 	int ret;
+	
+	printk(KERN_INFO "--- STBx25xx MPEG-2 Transport Demultiplexer driver ---\n");
 		
 	/* Init the filter block allocator */
 	demux_init_section_filters();
