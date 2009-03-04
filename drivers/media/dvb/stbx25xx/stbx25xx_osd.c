@@ -8,7 +8,12 @@
  *  more details.
  */
 
-#ifdef CONFIG_FB
+#if defined(CONFIG_FB) || defined(CONFIG_FB_MODULE)
+
+/*
+#define DEBUG		10
+#define DBG_LEVEL	1
+*/
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -24,20 +29,11 @@
 #include "stbx25xx.h"
 #include "stbx25xx_video.h"
 
+#pragma pack(1)
 struct stbx25xx_osd_hdr {
 	unsigned ctu	:1;
-	union {
-		struct {
-			unsigned width	:7;
-			unsigned shade	:4;
-			unsigned	:1;
-		} no_hc;
-		
-		struct {
-			unsigned width	:8;
-			unsigned shade	:4;
-		} hc;
-	};
+	unsigned width	:8;
+	unsigned shade	:4;
 	unsigned high	:1;
 	unsigned top	:9;
 	unsigned left	:9;
@@ -47,7 +43,7 @@ struct stbx25xx_osd_hdr {
 	unsigned pr	:1;
 	unsigned blend	:4;
 	unsigned transp	:1;
-} __attribute__((packed));
+};
 
 struct stbx25xx_osd_hdr_ext {
 	unsigned bitmap	:19;
@@ -67,15 +63,15 @@ struct stbx25xx_osd_hdr_ext {
 	unsigned	:1;
 	unsigned chr_en	:1;
 	unsigned chroma	:19;
-} __attribute__((packed));
+};
 
 struct stbx25xx_color_entry {
 	unsigned y	:6;
 	unsigned cb	:4;
 	unsigned cr	:4;
-	unsigned blend	:1;
-	unsigned fill	:1;
-} __attribute__((packed));
+	unsigned a	:2;
+};
+#pragma pack()
 
 /*
  * Driver data
@@ -83,13 +79,17 @@ struct stbx25xx_color_entry {
 
 #define FB_TYPE_GRP	0
 #define FB_TYPE_IMG	1
+#define FB_MODE_PAL	0
+#define FB_MODE_NTSC	1
 struct stbx25xx_par {
 	struct	fb_info 		*info;
 	int				type;
+	int				mode;
 	struct stbx25xx_osd_hdr		*hdr;
 	struct stbx25xx_osd_hdr_ext	*ext;
 	struct stbx25xx_color_entry	*pal;
 	size_t				mem_size;
+	struct stbx25xx_dvb_dev		*dvb;
 };
 
 static struct fb_fix_screeninfo stbx25xxfb_fix[STBx25xx_FB_COUNT] = {
@@ -115,18 +115,37 @@ static struct fb_fix_screeninfo stbx25xxfb_fix[STBx25xx_FB_COUNT] = {
 
 static struct fb_var_screeninfo stbx25xxfb_var[STBx25xx_FB_COUNT] = {
 	[0] = {
-		.xres		= VID_WIDTH,
+		.height		= -1,
+		.width		= -1,
+		.xres		= SCR_WIDTH,
+		.xres_virtual	= SCR_WIDTH,
 #ifndef CONFIG_STBx25xx_NTSC
-		.yres		= VID_HEIGHT_PAL,
-		.yres_virtual	= VID_HEIGHT_PAL,
+		.yres		= SCR_HEIGHT_PAL,
+		.yres_virtual	= SCR_WIDTH,
 #else
-		.yres		= VID_HEIGHT_NTSC,
-		.yres_virtual	= VID_HEIGHT_NTSC,
+		.yres		= SCR_HEIGHT_NTSC,
+		.yres_virtual	= SCR_HEIGHT_NTSC,
 #endif
 		.bits_per_pixel	= 8,
+		.red		= { 0, 8, 0 },
+		.green		= { 0, 8, 0 },
+		.blue		= { 0, 8, 0 },
+//		.activate 	= FB_ACTIVATE_NOW,
+		.pixclock = 290000000,
+		.left_margin = 64,
+		.right_margin = 64,
+		.upper_margin = 32,
+		.lower_margin = 32,
+		.hsync_len = 64,
+		.vsync_len = 64,
+		.vmode = FB_VMODE_INTERLACED,
+		.sync = FB_SYNC_BROADCAST,
 	},
 	[1] = {
+		.height		= -1,
+		.width		= -1,
 		.xres		= VID_WIDTH,
+		.xres_virtual	= VID_WIDTH,
 #ifndef CONFIG_STBx25xx_NTSC
 		.yres		= VID_HEIGHT_PAL,
 		.yres_virtual	= VID_HEIGHT_PAL,
@@ -135,100 +154,67 @@ static struct fb_var_screeninfo stbx25xxfb_var[STBx25xx_FB_COUNT] = {
 		.yres_virtual	= VID_HEIGHT_NTSC,
 #endif
 		.bits_per_pixel	= 8,
+		.vmode		= FB_VMODE_INTERLACED,
+		.red		= { 0, 8, 0 },
+		.green		= { 0, 8, 0 },
+		.blue		= { 0, 8, 0 },
+//		.activate 	= FB_ACTIVATE_NOW,
+		.pixclock = 290000000,
+		.left_margin = 64,
+		.right_margin = 64,
+		.upper_margin = 32,
+		.lower_margin = 32,
+		.hsync_len = 64,
+		.vsync_len = 64,
+		.sync = FB_SYNC_BROADCAST,
 	},
 };
 
-u32 pseudo_palette[16] = { 0, };
+u32 pseudo_palette[32] = { 0, };
 
 int stbx25xxfb_init(void);
 
 struct mutex osd_mode_mutex;
 
-static int stbx25xxfb_open(struct fb_info *info, int user)
-{
-	stbx25xx_video_val reg;
-	struct stbx25xx_par *par = info->par;
-	
-	if(mutex_lock_interruptible(&osd_mode_mutex))
-		return -EAGAIN;
-	
-	reg = get_video_reg(OSD_MODE);
-	if(par->type == FB_TYPE_GRP)
-		reg.osd_mode.gle = 1;
-	else
-		reg.osd_mode.ile = 1;
-	set_video_reg(OSD_MODE, reg);
-	
-	mutex_unlock(&osd_mode_mutex);
-	
-	return 0;
-}
-
-static int stbx25xxfb_release(struct fb_info *info, int user)
-{
-	stbx25xx_video_val reg;
-	struct stbx25xx_par *par = info->par;
-	
-	if(mutex_lock_interruptible(&osd_mode_mutex))
-		return -EAGAIN;
-	
-	reg = get_video_reg(OSD_MODE);
-	if(par->type == FB_TYPE_GRP)
-		reg.osd_mode.gle = 0;
-	else
-		reg.osd_mode.ile = 0;
-	set_video_reg(OSD_MODE, reg);
-	
-	mutex_unlock(&osd_mode_mutex);
-	
-	return 0;
-}
-
 static int stbx25xxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
-	*var = info->var;
-	return 0;	   	
-}
-
-static int stbx25xxfb_set_par(struct fb_info *info)
-{
-	struct stbx25xx_par *par = info->par;
-	struct stbx25xx_osd_hdr *hdr = par->hdr;
-	struct stbx25xx_osd_hdr_ext *ext = par->ext;
-
-	switch(info->var.bits_per_pixel) {
-		case 8:
-			/* Setup header */
-			memset(hdr, 0, sizeof(*hdr));
-			hdr->ctu	= 1;
-			hdr->hc.width	= info->var.xres / 4;
-			hdr->high	= 1;
-			hdr->height	= info->var.yres / 2;
-			/* Setup extension */
-			memset(ext, 0, sizeof(*ext));
-			ext->bitmap	= ((void *)info->screen_base - (void *)hdr) / 4;
-			ext->ext2	= 1;
-			/* Erase the screen */
-			memset(info->screen_base, 0, info->var.xres * info->var.yres);
-			/* Erase the color table */
-			memset(par->pal, 0, 256 * sizeof(*par->pal));
-			break;
-		default:
-			printk(KERN_ERR "%s: Unsupported color depth (%d bpp)\n", __func__, info->var.bits_per_pixel);
-			return -EINVAL;
-	}
+	dprintk("%s\n", __func__);
 	
-	return 0;	
+	if(var->xres > VID_WIDTH)
+		return -EINVAL;
+	
+	if(var->xres % 16)
+		return -EINVAL;
+	
+	if(var->yres > VID_HEIGHT_PAL)
+		return -EINVAL;
+	
+	if(var->yres % 16)
+		return -EINVAL;
+	
+	if(var->xres != var->xres_virtual ||
+	   var->yres != var->yres_virtual)
+		return -EINVAL;
+
+	if(var->xoffset | var->yoffset)
+		return -EINVAL;
+	
+	if(var->bits_per_pixel != 8)
+		return -EINVAL;
+	
+	var->accel_flags = 0;
+
+	return 0;	   	
 }
 
 static void rgb2ycbcr(u8 r, u8 g,  u8 b,  u8 *y, u8 *cb, u8 *cr)
 {
-    // Y  =  0.257*R + 0.504*G + 0.098*B + 16
-    // CB = -0.148*R - 0.291*G + 0.439*B + 128
-    // CR =  0.439*R - 0.368*G - 0.071*B + 128
-    *y  = (u8)((8432*(u32)r + 16425*(u32)g + 3176*(u32)b + 16*32768)>>15);
-    *cb = (u8)((128*32768 + 14345*(u32)b - 4818*(u32)r -9527*(u32)g)>>15);
-    *cr = (u8)((128*32768 + 14345*(u32)r - 12045*(u32)g-2300*(u32)b)>>15);
+	// Y  =  0.257*R + 0.504*G + 0.098*B + 16
+	// CB = -0.148*R - 0.291*G + 0.439*B + 128
+	// CR =  0.439*R - 0.368*G - 0.071*B + 128
+	*y  = (u8)((8432*(u32)r + 16425*(u32)g + 3176*(u32)b + 16*32768)>>15);
+	*cb = (u8)((128*32768 + 14345*(u32)b - 4818*(u32)r -9527*(u32)g)>>15);
+	*cr = (u8)((128*32768 + 14345*(u32)r - 12045*(u32)g-2300*(u32)b)>>15);
 }
 
 static int stbx25xxfb_setcolreg(unsigned regno, unsigned red, unsigned green,
@@ -239,50 +225,25 @@ static int stbx25xxfb_setcolreg(unsigned regno, unsigned red, unsigned green,
 	
 	if (regno >= 256)  /* no. of hw registers */
 		return -EINVAL;
-	/*
-	* Program hardware... do anything you want with transp
-	*/
+	
+	red >>= 8;
+	green >>= 8;
+	blue >>= 8;
+	
+	dprintk("%s: reg=%d, r=%d, g=%d, b=%d\n", __func__, regno, red, green, blue);
 
-	/* grayscale works only partially under directcolor */
-	if (info->var.grayscale) {
-		/* grayscale = 0.30*R + 0.59*G + 0.11*B */
-		red = green = blue = (red * 77 + green * 151 + blue * 28) >> 8;
-	}
-
-	/*
-	* This is the point where the function feeds the color to the hardware
-	* palette after converting the colors to something acceptable by
-	* the hardware. Note, only FB_VISUAL_DIRECTCOLOR and
-	* FB_VISUAL_PSEUDOCOLOR visuals need to write to the hardware palette.
-	* If you have code that writes to the hardware CLUT, and it's not
-	* any of the above visuals, then you are doing something wrong.
-	*/
-	if (info->fix.visual == FB_VISUAL_DIRECTCOLOR ||
-		info->fix.visual == FB_VISUAL_PSEUDOCOLOR) {
+	if (info->fix.visual == FB_VISUAL_PSEUDOCOLOR) {
 		u8 y, cb, cr;
 		rgb2ycbcr(red, green, blue, &y, &cb, &cr);
 		par->pal[regno].y = y >> 2;
 		par->pal[regno].cb = cb >> 4;
 		par->pal[regno].cr = cr >> 4;
+		par->pal[regno].a = 0;
+		
+		return 0;
 	}
 
-	/* This is the point were you need to fill up the contents of
-	* info->pseudo_palette. This structure is used _only_ by fbcon, thus
-	* it only contains 16 entries to match the number of colors supported
-	* by the console. The pseudo_palette is used only if the visual is
-	* in directcolor or truecolor mode.  With other visuals, the
-	* pseudo_palette is not used. (This might change in the future.)
-	*
-	* The contents of the pseudo_palette is in raw pixel format.  Ie, each
-	* entry can be written directly to the framebuffer without any conversion.
-	* The pseudo_palette is (void *).  However, if using the generic
-	* drawing functions (cfb_imageblit, cfb_fillrect), the pseudo_palette
-	* must be casted to (u32 *) _regardless_ of the bits per pixel. If the
-	* driver is using its own drawing functions, then it can use whatever
-	* size it wants.
-	*/
-	if (info->fix.visual == FB_VISUAL_TRUECOLOR ||
-		info->fix.visual == FB_VISUAL_DIRECTCOLOR) {
+	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
 		u32 v;
 
 		if (regno >= 16)
@@ -299,34 +260,164 @@ static int stbx25xxfb_setcolreg(unsigned regno, unsigned red, unsigned green,
 	return 0;
 }
 
-#if 0
-/**
- *      stbx25xxfb_blank - NOT a required function. Blanks the display.
- *      @blank_mode: the blank mode we want. 
- *      @info: frame buffer structure that represents a single frame buffer
- *
- *      Blank the screen if blank_mode != FB_BLANK_UNBLANK, else unblank.
- *      Return 0 if blanking succeeded, != 0 if un-/blanking failed due to
- *      e.g. a video mode which doesn't support it.
- *
- *      Implements VESA suspend and powerdown modes on hardware that supports
- *      disabling hsync/vsync:
- *
- *      FB_BLANK_NORMAL = display is blanked, syncs are on.
- *      FB_BLANK_HSYNC_SUSPEND = hsync off
- *      FB_BLANK_VSYNC_SUSPEND = vsync off
- *      FB_BLANK_POWERDOWN =  hsync and vsync off
- *
- *      If implementing this function, at least support FB_BLANK_UNBLANK.
- *      Return !0 for any modes that are unimplemented.
- *
- */
-static int stbx25xxfb_blank(int blank_mode, struct fb_info *info)
+static int stbx25xxfb_set_par(struct fb_info *info)
 {
-	/* ... */
+	struct stbx25xx_par *par = info->par;
+	struct stbx25xx_osd_hdr *hdr = par->hdr;
+	struct stbx25xx_osd_hdr_ext *ext = par->ext;
+	stbx25xx_video_val reg;
+	int ret = 0, ena;
+	
+	dprintk("%s\n", __func__);
+	
+	if(mutex_lock_killable(&par->dvb->osd_mode_mutex))
+		return -ERESTARTSYS;
+	
+	reg = get_video_reg(OSD_MODE);
+	if(par->type == FB_TYPE_GRP) {
+		ena = reg.osd_mode.gle;
+		reg.osd_mode.gle = 0;
+	} else {
+		ena = reg.osd_mode.ile;
+		reg.osd_mode.ile = 0;
+	}
+	set_video_reg(OSD_MODE, reg);
+
+	switch(info->var.bits_per_pixel) {
+		case 8:
+			info->fix.line_length = info->var.xres_virtual * info->var.bits_per_pixel / 8;
+			info->fix.visual = FB_VISUAL_PSEUDOCOLOR;
+			/* Setup header */
+			memset(hdr, 0, sizeof(*hdr));
+			hdr->ctu	= 1;
+			hdr->left	= (VID_WIDTH - info->var.xres) / 4;
+			hdr->width	= info->var.xres / 4;
+			hdr->high	= 1;
+			if(par->mode == FB_MODE_PAL)
+				hdr->top	= (VID_HEIGHT_PAL - info->var.yres) / 4;
+			else
+				hdr->top	= (VID_HEIGHT_NTSC - info->var.yres) / 4;
+			hdr->height	= info->var.yres / 2;
+			/* Setup extension */
+			memset(ext, 0, sizeof(*ext));
+			ext->bitmap	= ((void *)info->screen_base - (void *)hdr) / 4;
+			ext->ext2	= 1;
+			/* Erase the screen */
+			stbx25xxfb_setcolreg(0, 0, 0, 0, 0, info);
+			memset(info->screen_base, 0, info->var.xres * info->var.yres);
+			break;
+		default:
+			printk(KERN_ERR "%s: Unsupported color depth (%d bpp)\n", __func__, info->var.bits_per_pixel);
+			ret = -EINVAL;
+			goto exit;
+	}
+	
+	if(par->type == FB_TYPE_GRP)
+		reg.osd_mode.gle = ena;
+	else
+		reg.osd_mode.ile = ena;
+	set_video_reg(OSD_MODE, reg);
+	
+exit:
+	mutex_unlock(&par->dvb->osd_mode_mutex);
+
+	return ret;
+}
+
+static void osd_disable(struct stbx25xx_dvb_dev *dvb, int type)
+{
+	stbx25xx_video_val reg;
+	
+	if(mutex_lock_killable(&dvb->osd_mode_mutex))
+		return -ERESTARTSYS;
+	
+	reg = get_video_val(OSD_MODE);
+	if(type = FB_TYPE_GRP)
+		reg.osd_mode.gle = 0;
+	else
+		reg.osd_mode.ile = 0;
+	set_video_val(OSD_MODE, reg);
+	
+	mutex_unlock(&dvb->osd_mode_mutex);
+}
+
+static void osd_enable(struct stbx25xx_dvb_dev *dvb, int type)
+{
+	if(mutex_lock_killable(&dvb->osd_mode_mutex))
+		return -ERESTARTSYS;	
+	
+	reg = get_video_val(OSD_MODE);
+	if(type = FB_TYPE_GRP)
+		reg.osd_mode.gle = 1;
+	else
+		reg.osd_mode.ile = 1;
+	set_video_val(OSD_MODE, reg);
+	
+	mutex_unlock(&dvb->osd_mode_mutex);
+}
+
+static void osd_set_blending(struct fb_info *info, unsigned long arg)
+{
+	struct stbx25xx_par *par = info->par;
+	
+	if(arg > 64)
+		arg = 64;
+	
+	par->hdr->blend = arg >> 2;
+	par->ext->bl_lvl = arg & 3;
+}
+
+static void osd_set_shading(struct fb_info *info, unsigned long arg)
+{
+	struct stbx25xx_par *par = info->par;
+	
+	if(arg > 64)
+		arg = 64;
+	
+	par->hdr->shade = arg >> 2;
+	par->ext->sh_lvl = arg & 3;
+}
+
+static void osd_set_af(struct fb_info *info, unsigned long arg)
+{
+	struct stbx25xx_par *par = info->par;
+	
+	if(arg > 3)
+		arg = 3;
+	
+	par->ext->af = arg;
+}
+
+static int stbx25xxfb_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg, int con, struct fb_info *info)
+{
+	struct stbx25xx_par *par = info->par;
+	
+	switch(cmd) {
+		case STB_FB_HIDE:
+			osd_disable(par->dvb, par->type);
+			break;
+		case STB_FB_SHOW:
+			osd_enable(par->dvb, par->type);
+			break;
+		case STB_FB_SETBLEND:
+			if(par->type != FB_TYPE_GRP)
+				return -EINVAL;
+			osd_set_blending(info, arg);
+			break;
+		case STB_FB_SETSHADE:
+			if(par->type != FB_TYPE_GRP)
+				return -EINVAL;
+			osd_set_shading(info, arg);
+			break;
+		case STB_FB_SETAF:
+			osd_set_af_filter(info, arg);
+			break;
+		default:
+			return -EINVAL;
+	}
+	
 	return 0;
 }
-#endif
 
     /*
      *  Frame buffer operations
@@ -334,16 +425,13 @@ static int stbx25xxfb_blank(int blank_mode, struct fb_info *info)
 
 static struct fb_ops stbx25xxfb_ops = {
 	.owner		= THIS_MODULE,
-	.fb_open	= stbx25xxfb_open,
-	.fb_release	= stbx25xxfb_release,
 	.fb_check_var	= stbx25xxfb_check_var,
 	.fb_set_par	= stbx25xxfb_set_par,
 	.fb_setcolreg	= stbx25xxfb_setcolreg,
-//	.fb_blank	= stbx25xxfb_blank,
 	.fb_fillrect	= cfb_fillrect,
 	.fb_copyarea	= cfb_copyarea,
 	.fb_imageblit	= cfb_imageblit,
-//	.fb_mmap	= stbx25xxfb_mmap,
+	.fb_ioctl	= stbx25xxfb_ioctl,
 };
 
 /* ------------------------------------------------------------------------- */
@@ -358,6 +446,7 @@ int stbx25xx_osd_init(struct stbx25xx_dvb_dev *dvb)
 	struct stbx25xx_par *par;
 	struct device *device = dvb->dev; /* or &pdev->dev */
 	int i;	
+	u32 addr;
 	
 	mutex_init(&osd_mode_mutex);
 	
@@ -374,6 +463,12 @@ int stbx25xx_osd_init(struct stbx25xx_dvb_dev *dvb)
 		par = info->par;
 		
 		par->type = i;
+#ifdef CONFIG_STBx25xx_NTSC
+		par->mode = FB_MODE_NTSC;
+#else
+		par->mode = FB_MODE_PAL;
+#endif
+		par->dvb = dvb;
 
 		switch(par->type) {
 			case FB_TYPE_GRP:
@@ -390,7 +485,7 @@ int stbx25xx_osd_init(struct stbx25xx_dvb_dev *dvb)
 		info->fix = stbx25xxfb_fix[i]; /* this will be the only time stbx25xxfb_fix will be
 					* used, so mark it as __devinitdata
 					*/
-		info->pseudo_palette = pseudo_palette; /* The pseudopalette is an
+		info->pseudo_palette = &pseudo_palette[i*16]; /* The pseudopalette is an
 							* 16-member array
 							*/
 		info->flags = FBINFO_HWACCEL_NONE;
@@ -410,7 +505,7 @@ int stbx25xx_osd_init(struct stbx25xx_dvb_dev *dvb)
 		* max_font_height is 32.
 		*/
 		
-#define PIXMAP_SIZE	(VID_WIDTH * (32/8))
+/*#define PIXMAP_SIZE	(VID_WIDTH * (32/8))
 		
 		info->pixmap.addr = kmalloc(PIXMAP_SIZE, GFP_KERNEL);
 		if (!info->pixmap.addr) {
@@ -423,6 +518,7 @@ int stbx25xx_osd_init(struct stbx25xx_dvb_dev *dvb)
 		info->pixmap.scan_align = 4;
 		info->pixmap.buf_align = 4;
 		info->pixmap.access_align = 32;
+*/
 
 		/* This has to been done !!! */	
 		fb_alloc_cmap(&info->cmap, 256, 0);
@@ -439,15 +535,30 @@ int stbx25xx_osd_init(struct stbx25xx_dvb_dev *dvb)
 		par->hdr = (void *)info->screen_base;
 		par->ext = (void *)info->screen_base + sizeof(*par->hdr);
 		par->pal = (void *)info->screen_base + sizeof(*par->hdr) + sizeof(*par->ext);
-		
-		info->screen_base = (void *)info->screen_base + sizeof(*par->hdr) + sizeof(*par->ext) + (256 * sizeof(*par->pal));
 		par->mem_size -= sizeof(*par->hdr) + sizeof(*par->ext) + (256 * sizeof(*par->pal));
 		
-		set_video_reg_raw(VID0_GSLA + i, ((void *)par->hdr - (void *)info->screen_base) >> 5);
+		addr = (u32)((void *)info->screen_base + sizeof(*par->hdr) + sizeof(*par->ext) + (256 * sizeof(*par->pal)));
+		par->mem_size -= PAGE_ALIGN(addr) - addr;
+		addr = PAGE_ALIGN(addr);
+		par->mem_size &= ~(4096 - 1);
+		info->screen_base = (void *)addr;
+		
+		/* Needed for mmap() */
+		info->fix.smem_start = VIDEO_OSD_BASE + ((void *)par->hdr - (void *)dvb->osd_memory) + ((void *)info->screen_base - (void *)par->hdr);
+		info->fix.smem_len = par->mem_size;
+
+		
+		dprintk("%s: Memory setup:\n-> Header @ %p\n-> Header extension @ %p\n"
+		"-> Color table @ %p\n-> Video data: 0x%08x @ %p (%d bytes)\n",
+			 info->fix.id, par->hdr, par->ext, par->pal, info->fix.smem_start, info->screen_base, par->mem_size);
+		
+//		set_video_reg_raw(VID0_GPBASE - i, (SEG2_ADDR + ((void *)par->hdr - (void *)dvb->osd_memory)) / 128);
+		set_video_reg_raw(VID0_GSLA + i, 0);
 
 		/*
 		* For drivers that can...
 		*/
+		stbx25xxfb_check_var(&info->var, info);
 		stbx25xxfb_set_par(info);
 
 		if (register_framebuffer(info) < 0) {
@@ -456,8 +567,10 @@ int stbx25xx_osd_init(struct stbx25xx_dvb_dev *dvb)
 			return -EINVAL;
 		}
 		
-		printk(KERN_INFO "fb%d: %s frame buffer device\n", info->node,
-			info->fix.id);
+		osd_enable(dvb, i);
+		
+		printk(KERN_INFO "fb%d: %s frame buffer device (%s mode)\n", info->node,
+			info->fix.id, (par->mode == FB_MODE_PAL) ? "PAL" : "NTSC");
 		
 		dvb->fb_info[i] = info;
 	}
@@ -472,6 +585,7 @@ void stbx25xx_osd_exit(struct stbx25xx_dvb_dev *dvb)
 {
 	struct fb_info *info;
 	int i;
+	stbx25xx_video_val reg;
 	
 	for(i = 0; i < STBx25xx_FB_COUNT; i++) {
 		info = dvb->fb_info[i];
@@ -483,6 +597,11 @@ void stbx25xx_osd_exit(struct stbx25xx_dvb_dev *dvb)
 			framebuffer_release(info);
 		}
 	}
+	
+	reg = get_video_reg(OSD_MODE);
+	reg.osd_mode.gle = 0;
+	reg.osd_mode.ile = 0;
+	set_video_reg(OSD_MODE, reg);
 }
 
 #endif

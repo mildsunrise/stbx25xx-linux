@@ -110,6 +110,7 @@ struct stbx25xx_dvb_dev {
 	void *osdg_data;
 	void *osdi_data;
 	void *osdc_data;
+	struct mutex osd_mode_mutex;
 };
 
 /* Function prototypes */

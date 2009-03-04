@@ -24,6 +24,9 @@
  * - more to come...
  */
 
+#define DEBUG		10
+#define DBG_LEVEL	1
+
 #include "stbx25xx.h"
 #include "stbx25xx_video.h"
 #include <linux/firmware.h>
@@ -42,11 +45,9 @@ static stbx25xx_video_val def_osd_mode = {
 		.chsfr	= 256,
 		.edaf	= 1,
 		.afdt	= 1,
-		.vpafc	= 1,
 		.ilbm	= 1,
 		.cds	= 1,
 		.clbm	= 1,
-		.afvp	= 1,
 		.glbm	= 1,
 	},
 };
@@ -103,6 +104,32 @@ static void video_issue_cmds(struct stbx25xx_video_cmd *cmds, u8 count)
 	local_irq_restore(flags);
 }
 
+static int video_set_anti_flicker(struct stbx25xx_dvb_dev *dvb, int mode)
+{
+	stbx25xx_video_val reg;
+	
+	if(mutex_lock_interruptible(&dvb->osd_mode_mutex))
+		return -ERESTARTSYS;
+	
+	if(mode < 0)
+		mode = 0;
+	
+	if(mode > 3)
+		mode = 3;
+	
+	reg = get_video_reg(OSD_MODE);
+	
+	reg.osd_mode.vpafc = mode;
+	if(mode)
+		reg.osd_mode.afvp = 1;
+	else
+		reg.osd_mode.afvp = 0;
+	
+	set_video_reg(OSD_MODE, reg);
+	
+	mutex_unlock(&dvb->osd_mode_mutex);
+}
+
 /**
 	Hardware setup
 */
@@ -145,7 +172,7 @@ static int video_init_memory(struct stbx25xx_dvb_dev *dvb)
 	
 	reg.mem_seg.seg0a = SEG2_BASE >> 20;
 	reg.mem_seg.seg0s = SEG2_SIZE;
-	set_video_reg(MEM_SEG1, reg);
+	set_video_reg(MEM_SEG2, reg);
 	
 	set_video_reg_raw(USERDATA_BASE, (SEG1_ADDR + USER_OFFSET) >> 7);
 	
@@ -206,8 +233,8 @@ static int video_init_memory(struct stbx25xx_dvb_dev *dvb)
 	dprintk("%s: OSD memory - 0x%08x @ %p (%d bytes)\n", __func__, VIDEO_OSD_BASE, dvb->osd_memory, VIDEO_OSD_SIZE);
 	
 	dvb->osdg_data = dvb->osd_memory + FB0_OFFSET;
-	dvb->osdc_data = dvb->osd_memory + FB1_OFFSET;
-	dvb->osdi_data = dvb->osd_memory + CUR_OFFSET;
+	dvb->osdi_data = dvb->osd_memory + FB1_OFFSET;
+	dvb->osdc_data = dvb->osd_memory + CUR_OFFSET;
 	
 	return 0;
 	
@@ -276,28 +303,319 @@ static int video_init_firmware(struct stbx25xx_dvb_dev *dvb)
 /**
 	Exported API calls
 */
+static void video_add_event(struct stbx25xx_dvb_dev *dvb, u16 width, u16 height, u16 aspect_ratio)
+{
+	struct video_event *event;
+	int wp;
+
+	spin_lock_irq(&dvb->vid_events.lock);
+
+	wp = (dvb->vid_events.eventw + 1) % MAX_VIDEO_EVENT;
+
+	if (wp == dvb->vid_events.eventr) {
+		dvb->vid_events.overflow = 1;
+		dvb->vid_events.eventr = (dvb->vid_events.eventr + 1) % MAX_VIDEO_EVENT;
+	}
+
+	event = &dvb->vid_events.events[dvb->vid_events.eventw];
+	event->type = VIDEO_EVENT_SIZE_CHANGED;
+	event->u.size.w = width;
+	event->u.size.h = height;
+
+	switch (aspect_ratio) {
+	case 2:
+		event->u.size.aspect_ratio = VIDEO_FORMAT_4_3;
+		break;
+	case 3:
+		event->u.size.aspect_ratio = VIDEO_FORMAT_16_9;
+		break;
+	case 4:
+		event->u.size.aspect_ratio = VIDEO_FORMAT_221_1;
+		break;
+	default:
+		event->u.size.aspect_ratio = VIDEO_FORMAT_4_3;
+		break;
+	}
+
+	dvb->vid_events.eventw = wp;
+
+	spin_unlock_irq(&dvb->vid_events.lock);
+
+	wake_up_interruptible(&dvb->vid_events.wait_queue);
+}
+
+static int video_get_event(struct stbx25xx_dvb_dev *dvb, struct video_event *event, int flags)
+{
+	int ret;
+
+	if (dvb->vid_events.overflow) {
+		dvb->vid_events.overflow = 0;
+		return -EOVERFLOW;
+	}
+
+	if (dvb->vid_events.eventw == dvb->vid_events.eventr) {
+		if (flags & O_NONBLOCK)
+			return -EWOULDBLOCK;
+
+		ret = wait_event_interruptible(dvb->vid_events.wait_queue,
+				dvb->vid_events.eventw != dvb->vid_events.eventr);
+
+		if (ret < 0)
+			return ret;
+	}
+
+	spin_lock_irq(&dvb->vid_events.lock);
+
+	memcpy(event, &dvb->vid_events.events[dvb->vid_events.eventr],
+			sizeof(struct video_event));
+
+	dvb->vid_events.eventr = (dvb->vid_events.eventr + 1) % MAX_VIDEO_EVENT;
+
+	spin_unlock_irq(&dvb->vid_events.lock);
+
+	return 0;
+}
+
 ssize_t stbx25xx_video_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 {
-	return 0;
+	struct dvb_device *dvbdev;
+	struct stbx25xx_dvb_dev *dvb;
+	
+	if(file == NULL)
+		return -EINVAL;
+	
+	dvbdev = file->private_data;
+	
+	if(dvbdev == NULL)
+		return -EINVAL;
+	
+	dvb = dvbdev->priv;
+	
+	if(dvb == NULL)
+		return -EINVAL;
+	
+	if (((file->f_flags & O_ACCMODE) == O_RDONLY) ||
+		(dvb->vid_state.stream_source != VIDEO_SOURCE_MEMORY))
+			return -EPERM;
+
+	return video_clip_queue(dvb, buf, count, file->f_flags & O_NONBLOCK);
 }
 
 int stbx25xx_video_open(struct inode *inode, struct file *file)
 {
+	int err;
+	struct dvb_device *dvbdev;
+	struct stbx25xx_dvb_dev *dvb;
+	
+	if(file == NULL)
+		return -EINVAL;
+	
+	dvbdev = file->private_data;
+	
+	if(dvbdev == NULL)
+		return -EINVAL;
+	
+	dvb = dvbdev->priv;
+	
+	if(dvb == NULL)
+		return -EINVAL;
+
+	if ((err = dvb_generic_open(inode, file)) < 0)
+		return err;
+
+	if ((file->f_flags & O_ACCMODE) != O_RDONLY) {
+		/* empty event queue */
+		dvb->vid_events.eventr = 0;
+		dvb->vid_events.eventw = 0;
+	}
+
 	return 0;
 }
 
 int stbx25xx_video_release(struct inode *inode, struct file *file)
 {
-	return 0;
+	struct dvb_device *dvbdev;
+	struct stbx25xx_dvb_dev *dvb;
+	
+	if(file == NULL)
+		return -EINVAL;
+	
+	dvbdev = file->private_data;
+	
+	if(dvbdev == NULL)
+		return -EINVAL;
+	
+	dvb = dvbdev->priv;
+	
+	if(dvb == NULL)
+		return -EINVAL;
+	
+	if ((file->f_flags & O_ACCMODE) != O_RDONLY) {
+		video_pause(dvb);
+		video_set_source(dvb, VIDEO_SOURCE_DEMUX);
+	}
+
+	return dvb_generic_release(inode, file);
 }
 
 unsigned int stbx25xx_video_poll(struct file *file, poll_table *wait)
 {
-	return 0;
+	unsigned int mask = 0;
+	struct dvb_device *dvbdev;
+	struct stbx25xx_dvb_dev *dvb;
+	
+	if(file == NULL)
+		return -EINVAL;
+	
+	dvbdev = file->private_data;
+	
+	if(dvbdev == NULL)
+		return -EINVAL;
+	
+	dvb = dvbdev->priv;
+	
+	if(dvb == NULL)
+		return -EINVAL;
+
+	if ((file->f_flags & O_ACCMODE) != O_RDONLY)
+		poll_wait(file, &dvb->vid_write_wq, wait);
+
+	poll_wait(file, &dvb->vid_events.wait_queue, wait);
+
+	if (dvb->vid_events.eventw != dvb->vid_events.eventr)
+		mask |= POLLPRI;
+
+	if ((file->f_flags & O_ACCMODE) != O_RDONLY) {
+		if (dvb->vid_state.play_state == VIDEO_PLAYING) {
+			if (video_clip_free(dvb))
+				mask |= (POLLOUT | POLLWRNORM);
+		}
+		else {
+			mask |= (POLLOUT | POLLWRNORM);
+		}
+	}
+
+	return mask;
 }
 
 int stbx25xx_video_ioctl(struct inode *inode, struct file *file, unsigned int cmd, void *parg)
 {
+	unsigned long arg = (unsigned long) parg;
+	struct dvb_device *dvbdev;
+	struct stbx25xx_dvb_dev *dvb;
+	
+	if(file == NULL)
+		return -EINVAL;
+	
+	dvbdev = file->private_data;
+	
+	if(dvbdev == NULL)
+		return -EINVAL;
+	
+	dvb = dvbdev->priv;
+	
+	if(dvb == NULL)
+		return -EINVAL;
+
+	if (((file->f_flags & O_ACCMODE) == O_RDONLY) &&
+		(cmd != VIDEO_GET_STATUS) &&
+		(cmd != VIDEO_GET_EVENT) &&
+		(cmd != VIDEO_GET_SIZE))
+		return -EPERM;
+
+	switch (cmd) {
+	case VIDEO_STOP:
+		video_pause(dvb);
+		dvb->vid_state.play_state = VIDEO_STOPPED;
+		break;
+		
+	case VIDEO_FREEZE:
+		video_pause(dvb);
+		dvb->vid_state.play_state = VIDEO_FREEZED;
+		break;
+
+	case VIDEO_PLAY:
+		video_play(dvb);
+		dvb->vid_state.play_state = VIDEO_PLAYING;
+		break;
+		
+	case VIDEO_CONTINUE:
+		video_play(dvb);
+		dvb->vid_state.play_state = VIDEO_PLAYING;
+		break;
+
+	case VIDEO_SELECT_SOURCE:
+		return video_set_source(dvb, (video_stream_source_t) arg);
+
+	case VIDEO_SET_BLANK:
+		dvb->vid_state.video_blank = !!arg;
+		break;
+
+	case VIDEO_GET_STATUS:
+		memcpy(parg, &dvb->vid_state, sizeof(struct video_status));
+		break;
+
+	case VIDEO_GET_EVENT:
+		return video_get_event(dvb, parg, file->f_flags);
+
+	case VIDEO_SET_DISPLAY_FORMAT:
+		return video_set_display_format(dvb, (video_displayformat_t) arg);
+
+	case VIDEO_STILLPICTURE:
+		return video_stillpicture(dvb, parg);
+
+	case VIDEO_FAST_FORWARD:
+		return video_fastforward(dvb, arg);
+
+	case VIDEO_SLOWMOTION:
+		return video_slow(dvb, arg);
+
+	case VIDEO_GET_CAPABILITIES:
+		*((unsigned int *)parg) = STBx25xx_VIDEO_CAPS;
+		break;
+
+	case VIDEO_CLEAR_BUFFER:
+		return video_vrb_reset(dvb);
+
+	case VIDEO_SET_ID:
+		return -EOPNOTSUPP;
+
+	case VIDEO_SET_STREAMTYPE:
+		return video_set_stream_type(dvb, arg);
+
+	case VIDEO_SET_FORMAT:
+		return video_set_format(dvb, (video_format_t) arg);
+
+	case VIDEO_SET_SYSTEM:
+		return video_set_system(dvb, (video_system_t) arg);
+
+	case VIDEO_SET_HIGHLIGHT:
+		return -EOPNOTSUPP;
+
+	case VIDEO_SET_SPU:
+		return -EOPNOTSUPP;
+
+	case VIDEO_SET_SPU_PALETTE:
+		return -EOPNOTSUPP;
+
+	case VIDEO_GET_NAVI:
+		return -EOPNOTSUPP;
+
+	case VIDEO_SET_ATTRIBUTES:
+		return -EOPNOTSUPP;
+
+	case VIDEO_GET_SIZE:
+		video_get_size(dvb, (video_size_t *)parg);
+		break;
+		
+	case STB_VID_SETAF:
+		video_set_anti_flicker(dvb, arg);
+		break;
+
+	default:
+		return -ENOIOCTLCMD;
+	}
+
 	return 0;
 }
 
@@ -313,6 +631,8 @@ int stbx25xx_video_init(struct stbx25xx_dvb_dev *dvb)
 	};
 	
 	printk(KERN_INFO "--- STBx25xx MPEG-2 Video Decoder driver ---\n");
+	
+	mutex_init(&dvb->osd_mode_mutex);
 	
 	video_init_hw(dvb);
 	
@@ -330,7 +650,7 @@ int stbx25xx_video_init(struct stbx25xx_dvb_dev *dvb)
 	
 	video_issue_cmd(&cmd);
 	
-#ifdef CONFIG_FB
+#if defined(CONFIG_FB) || defined(CONFIG_FB_MODULE)
 	stbx25xx_osd_init(dvb);
 #endif
 	
@@ -348,7 +668,7 @@ void stbx25xx_video_exit(struct stbx25xx_dvb_dev *dvb)
 	
 	/* TODO: Tidy up */
 
-#ifdef CONFIG_FB
+#if defined(CONFIG_FB) || defined(CONFIG_FB_MODULE)
 	stbx25xx_osd_exit(dvb);
 #endif
 	

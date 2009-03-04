@@ -18,6 +18,7 @@
 /* Misc */
 #define VBI_LINES	16
 #define CLIP_COUNT	2	/* 2 clips for ping-pong buffer */
+#define STBx25xx_VIDEO_CAPS	(VIDEO_CAP_MPEG1 | VIDEO_CAP_MPEG2 | VIDEO_CAP_SYS | VIDEO_CAP_PROG)
 
 /* Memory map */
 #define VIDEO_FB_BASE		0xA0000000	/* Video Framebuffers Memory */
@@ -145,6 +146,26 @@
 #define CMD_FRM_SW		13
 #define CMD_STILL		14
 #define CMD_SKIP		15
+
+/* Video encoder */
+#define DENC0_CR1		0x131
+#define DENC1_CR1		0x2e1
+#define DENC0_RLSR              0x13D
+#define DENC0_VSR               0x13F
+#define DENC_NTSC		1
+#define DENC_PAL		2
+#define OUTFMT_CVBS		0
+#define OUTFMT_RGB		1
+#define OUTFMT_COMP		2
+#define OUTFMT_SVIDEO		3
+
+/* IOCTLs */
+#define STB_FB_SETBLEND		_IO('o', 0)
+#define STB_FB_HIDE		_IO('o', 2)
+#define STB_FB_SHOW		_IO('o', 3)
+#define STB_FB_SETSHADE		_IO('o', 6)
+#define STB_FB_SETAF		_IO('o', 7)
+#define STB_VID_SETAF		_IO('o', 64)
 
 #define set_video_reg(reg, val) \
 	mtdcr(reg, val.raw)
