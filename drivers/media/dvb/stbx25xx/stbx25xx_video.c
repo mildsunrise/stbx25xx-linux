@@ -1228,6 +1228,10 @@ void stbx25xx_video_exit(struct stbx25xx_dvb_dev *dvb)
 	stbx25xx_osd_exit(dvb);
 #endif
 	
+	video_hide();
+	video_stop_decoding();
+	video_stop_proc();
+	free_irq(dvb->irq_num[STBx25xx_IRQ_VIDEO], dvb);
 	set_video_reg_raw(VIDEO_CNTL, 0);
 	video_deinit_memory(dvb);
 }
