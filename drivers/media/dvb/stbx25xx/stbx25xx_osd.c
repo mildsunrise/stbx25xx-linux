@@ -329,29 +329,31 @@ static void osd_disable(struct stbx25xx_dvb_dev *dvb, int type)
 	stbx25xx_video_val reg;
 	
 	if(mutex_lock_killable(&dvb->osd_mode_mutex))
-		return -ERESTARTSYS;
+		return;
 	
-	reg = get_video_val(OSD_MODE);
-	if(type = FB_TYPE_GRP)
+	reg = get_video_reg(OSD_MODE);
+	if(type == FB_TYPE_GRP)
 		reg.osd_mode.gle = 0;
 	else
 		reg.osd_mode.ile = 0;
-	set_video_val(OSD_MODE, reg);
+	set_video_reg(OSD_MODE, reg);
 	
 	mutex_unlock(&dvb->osd_mode_mutex);
 }
 
 static void osd_enable(struct stbx25xx_dvb_dev *dvb, int type)
 {
-	if(mutex_lock_killable(&dvb->osd_mode_mutex))
-		return -ERESTARTSYS;	
+	stbx25xx_video_val reg;
 	
-	reg = get_video_val(OSD_MODE);
-	if(type = FB_TYPE_GRP)
+	if(mutex_lock_killable(&dvb->osd_mode_mutex))
+		return;	
+	
+	reg = get_video_reg(OSD_MODE);
+	if(type == FB_TYPE_GRP)
 		reg.osd_mode.gle = 1;
 	else
 		reg.osd_mode.ile = 1;
-	set_video_val(OSD_MODE, reg);
+	set_video_reg(OSD_MODE, reg);
 	
 	mutex_unlock(&dvb->osd_mode_mutex);
 }
@@ -388,32 +390,33 @@ static void osd_set_af(struct fb_info *info, unsigned long arg)
 	par->ext->af = arg;
 }
 
-static int stbx25xxfb_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg, int con, struct fb_info *info)
+static int stbx25xxfb_ioctl(struct fb_info *info, unsigned int cmd,
+		       unsigned long arg)
 {
 	struct stbx25xx_par *par = info->par;
 	
 	switch(cmd) {
-		case STB_FB_HIDE:
-			osd_disable(par->dvb, par->type);
-			break;
-		case STB_FB_SHOW:
-			osd_enable(par->dvb, par->type);
-			break;
-		case STB_FB_SETBLEND:
-			if(par->type != FB_TYPE_GRP)
-				return -EINVAL;
-			osd_set_blending(info, arg);
-			break;
-		case STB_FB_SETSHADE:
-			if(par->type != FB_TYPE_GRP)
-				return -EINVAL;
-			osd_set_shading(info, arg);
-			break;
-		case STB_FB_SETAF:
-			osd_set_af_filter(info, arg);
-			break;
-		default:
+	case STB_FB_HIDE:
+		osd_disable(par->dvb, par->type);
+		break;
+	case STB_FB_SHOW:
+		osd_enable(par->dvb, par->type);
+		break;
+	case STB_FB_SETBLEND:
+		if(par->type != FB_TYPE_GRP)
 			return -EINVAL;
+		osd_set_blending(info, arg);
+		break;
+	case STB_FB_SETSHADE:
+		if(par->type != FB_TYPE_GRP)
+			return -EINVAL;
+		osd_set_shading(info, arg);
+		break;
+	case STB_FB_SETAF:
+		osd_set_af(info, arg);
+		break;
+	default:
+		return -ENOIOCTLCMD;
 	}
 	
 	return 0;

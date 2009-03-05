@@ -60,6 +60,9 @@ struct stbx25xx_video_cmd {
 	u16 *par;
 };
 
+/**
+	Hardware manipulation routines
+*/
 static void video_issue_cmd(struct stbx25xx_video_cmd *cmd)
 {
 	unsigned long flags;
@@ -104,12 +107,12 @@ static void video_issue_cmds(struct stbx25xx_video_cmd *cmds, u8 count)
 	local_irq_restore(flags);
 }
 
-static int video_set_anti_flicker(struct stbx25xx_dvb_dev *dvb, int mode)
+static void video_set_anti_flicker(struct stbx25xx_dvb_dev *dvb, int mode)
 {
 	stbx25xx_video_val reg;
 	
 	if(mutex_lock_interruptible(&dvb->osd_mode_mutex))
-		return -ERESTARTSYS;
+		return;
 	
 	if(mode < 0)
 		mode = 0;
@@ -128,6 +131,76 @@ static int video_set_anti_flicker(struct stbx25xx_dvb_dev *dvb, int mode)
 	set_video_reg(OSD_MODE, reg);
 	
 	mutex_unlock(&dvb->osd_mode_mutex);
+}
+
+static void video_pause(struct stbx25xx_dvb_dev *dvb)
+{
+	
+}
+
+static void video_play(struct stbx25xx_dvb_dev *dvb)
+{
+	
+}
+
+static int video_set_source(struct stbx25xx_dvb_dev *dvb, video_stream_source_t src)
+{
+	return -EINVAL;
+}
+
+static int video_set_display_format(struct stbx25xx_dvb_dev *dvb, video_displayformat_t fmt)
+{
+	return -EINVAL;
+}
+
+static int video_stillpicture(struct stbx25xx_dvb_dev *dvb, struct video_still_picture *pic)
+{
+	return -EINVAL;
+}
+
+static int video_fastforward(struct stbx25xx_dvb_dev *dvb, int n)
+{
+	return -EINVAL;
+}
+
+static int video_slow(struct stbx25xx_dvb_dev *dvb, int n)
+{
+	return -EINVAL;
+}
+
+static void video_vrb_reset(struct stbx25xx_dvb_dev *dvb)
+{
+
+}
+
+static int video_set_stream_type(struct stbx25xx_dvb_dev *dvb, int type)
+{
+	return -EINVAL;
+}
+
+static int video_set_format(struct stbx25xx_dvb_dev *dvb, video_format_t fmt)
+{
+	return -EINVAL;
+}
+
+static int video_set_system(struct stbx25xx_dvb_dev *dvb, video_system_t sys)
+{
+	return -EINVAL;
+}
+
+static void video_get_size(struct stbx25xx_dvb_dev *dvb, video_size_t *size)
+{
+
+}
+
+static int video_clip_queue(struct stbx25xx_dvb_dev *dvb, const char *buf, size_t count, int nonblocking)
+{
+	return -EINVAL;
+}
+
+static int video_clip_free(struct stbx25xx_dvb_dev *dvb)
+{
+	return 0;
 }
 
 /**
@@ -575,7 +648,8 @@ int stbx25xx_video_ioctl(struct inode *inode, struct file *file, unsigned int cm
 		break;
 
 	case VIDEO_CLEAR_BUFFER:
-		return video_vrb_reset(dvb);
+		video_vrb_reset(dvb);
+		break;
 
 	case VIDEO_SET_ID:
 		return -EOPNOTSUPP;

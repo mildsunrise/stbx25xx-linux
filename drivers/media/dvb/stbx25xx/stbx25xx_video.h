@@ -18,7 +18,7 @@
 /* Misc */
 #define VBI_LINES	16
 #define CLIP_COUNT	2	/* 2 clips for ping-pong buffer */
-#define STBx25xx_VIDEO_CAPS	(VIDEO_CAP_MPEG1 | VIDEO_CAP_MPEG2 | VIDEO_CAP_SYS | VIDEO_CAP_PROG)
+#define STBx25xx_VIDEO_CAPS	(VIDEO_CAP_MPEG1 | VIDEO_CAP_MPEG2)
 
 /* Memory map */
 #define VIDEO_FB_BASE		0xA0000000	/* Video Framebuffers Memory */
