@@ -13,7 +13,8 @@
 #include "stbx25xx_video_val.h"
 
 /* Interrupts */
-#define VIDEO_IRQ	3
+#define VIDEO_IRQ			3
+#define STBx25xx_VIDEO_IRQ_COUNT	32
 
 /* Misc */
 #define VBI_LINES	16

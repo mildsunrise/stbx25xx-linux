@@ -86,6 +86,12 @@ typedef union {
 		unsigned	:2;
 		unsigned dyc	:2;
 		unsigned sfm	:2;
+		#define DF_PSCAN	0
+		#define DF_LBOX		1
+		#define DF_HALF		3
+		#define DF_QUARTER	4
+		#define DF_ZOOM2X	5
+		#define DF_NORMAL	7
 		unsigned df	:3;
 		unsigned mon	:1;
 	} disp_mode;

@@ -95,15 +95,22 @@ struct stbx25xx_dvb_dev {
 	/* Video decoder */
 	void *vfb_memory;
 	void *mpeg_memory;
-	void *user_data;
+	u8 *user_data;
 	void *vbi0_data;
 	void *vbi1_data;
 	void *rb_data;
 	phys_addr_t clip_phys[2];
 	void *clip_data[2];
 	ssize_t clip_size[2];
+	volatile u8 clip_busy[2];
+	u8 clip_rptr;
+	u8 clip_wptr;
+	struct completion clip_done;
 	u32 vfb_data[6];
 	u32 vfb_size[6];
+	video_stream_source_t old_source;
+	u8 still_mode;
+	struct completion still_done;
 	
 	/* Audio decoder */
 
