@@ -45,6 +45,12 @@
 /* Offset within Video memory */
 #define VFB_OFFSET		0x00000000
 #define VFB_SIZE		0x200000
+#define BUF0_LUM		0
+#define BUF0_CHR		1
+#define BUF1_LUM		2
+#define BUF1_CHR		3
+#define BUF2_LUM		4
+#define BUF2_CHR		5
 
 /* Offsets within OSD memory */
 #define FB0_OFFSET		0x00000000
@@ -130,22 +136,23 @@
 #define RATEBUF_SIZE		0x017f
 
 /* Firmware commands */
-#define CMD_PLAY		0
-#define CMD_PAUSE		1
-#define CMD_SINGLE		2
-#define CMD_FAST_FWD		3
-#define CMD_SLOW		4
-#define CMD_MOVE		5
-#define CMD_PANSCAN		6
-#define CMD_FREEZE		7
-#define CMD_RB_RST		8
-#define CMD_CFG			9
-#define CMD_SRV_INIT		10
-#define CMD_SRV_DISP		11
-#define CMD_SRV_DEL		12
-#define CMD_FRM_SW		13
-#define CMD_STILL		14
-#define CMD_SKIP		15
+#define CMD_CHAIN		1
+#define CMD_PLAY		(0 << 1)
+#define CMD_PAUSE		(1 << 1)
+#define CMD_SINGLE		(2 << 1)
+#define CMD_FAST_FWD		(3 << 1)
+#define CMD_SLOW		(4 << 1)
+#define CMD_MOVE		(5 << 1)
+#define CMD_PANSCAN		(6 << 1)
+#define CMD_FREEZE		(7 << 1)
+#define CMD_RB_RST		(8 << 1)
+#define CMD_CFG			(9 << 1)
+#define CMD_SRV_INIT		(10 << 1)
+#define CMD_SRV_DISP		(11 << 1)
+#define CMD_SRV_DEL		(12 << 1)
+#define CMD_FRM_SW		(13 << 1)
+#define CMD_STILL		(14 << 1)
+#define CMD_SKIP		(15 << 1)
 
 /* Video encoder */
 #define DENC0_CR1		0x131
@@ -167,6 +174,7 @@
 #define STB_FB_SETAF		_IO('o', 7)
 #define STB_VID_SETAF		_IO('o', 64)
 
+/* Register accessors */
 #define set_video_reg(reg, val) \
 	mtdcr(reg, val.raw)
 	

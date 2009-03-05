@@ -17,11 +17,6 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
- *
- * The driver relies on following assumptions:
- * - fb0 is a generic framebuffer running in 8-bit indexed mode
- * - fb1 is an extended hardware-specific framebuffer running in 16-bit direct color mode
- * - more to come...
  */
 
 #define DEBUG		10
@@ -33,6 +28,10 @@
 
 static stbx25xx_video_val def_display_mode = {
 	.disp_mode = {
+		/* Nice blue background ;) */
+		.bgY	= (40 >> 2),
+		.bgCr	= (109 >> 4),
+		.bgCb	= (240 >> 4),
 		.sm	= 7,
 #ifndef CONFIG_STBX25XX_NTSC
 		.pal	= 1,
@@ -52,8 +51,6 @@ static stbx25xx_video_val def_osd_mode = {
 	},
 };
 
-static stbx25xx_video_val display_mode; /* Running parameters */
-
 struct stbx25xx_video_cmd {
 	u8 cmd;
 	u8 cnt;
@@ -63,38 +60,67 @@ struct stbx25xx_video_cmd {
 /**
 	Hardware manipulation routines
 */
-static void video_issue_cmd(struct stbx25xx_video_cmd *cmd)
+
+static inline void video_soft_reset()
 {
-	unsigned long flags;
+	set_video_reg_raw(CMD_STAT, 0);
+	set_video_reg_raw(PROC_IADDR, 0x8200);
+}
+
+static int video_issue_cmd(struct stbx25xx_video_cmd *cmd)
+{
 	int i;
 	
-	local_irq_save(flags);
+	i = 0;
+	while(get_video_reg_raw(CMD_STAT) & 1) {
+		usleep(10);
+		i++;
+		if(i > 100) {
+			err("video command timeout");
+			video_soft_reset();
+			return -1;
+		}
+	}
 	
-	while(get_video_reg_raw(CMD_STAT) & 1);
-	
-	set_video_reg_raw(CMD, cmd->cmd << 1);
+	set_video_reg_raw(CMD, cmd->cmd);
 	for(i=0; i<cmd->cnt; i++) {
 		set_video_reg_raw(CMD_ADDR, i);
 		set_video_reg_raw(CMD_DATA, cmd->par[i]);
 	}
 	set_video_reg_raw(CMD_STAT, 1);
 	
-	while(get_video_reg_raw(CMD_STAT) & 1);
+	i = 0;
+	while(get_video_reg_raw(CMD_STAT) & 1) {
+		usleep(10);
+		i++;
+		if(i > 100) {
+			err("video command timeout");
+			video_soft_reset();
+			return -1;
+		}
+	}
 	
-	local_irq_restore(flags);
+	return 0;
 }
 
-static void video_issue_cmds(struct stbx25xx_video_cmd *cmds, u8 count)
+static int video_issue_cmds(struct stbx25xx_video_cmd *cmds, u8 count)
 {
 	unsigned long flags;
 	int i, j;
 	
-	local_irq_save(flags);
-	
 	for(j = 0; j < count; j++) {
-		while(get_video_reg_raw(CMD_STAT) & 1);
+		i = 0;
+		while(get_video_reg_raw(CMD_STAT) & 1) {
+			usleep(10);
+			i++;
+			if(i > 100) {
+				err("video command timeout");
+				video_soft_reset();
+				return -1;
+			}
+		}
 		
-		set_video_reg_raw(CMD, cmds[j].cmd << 1);
+		set_video_reg_raw(CMD, cmds[j].cmd);
 		for(i = 0; i < cmds[j].cnt; i++) {
 			set_video_reg_raw(CMD_ADDR, i);
 			set_video_reg_raw(CMD_DATA, cmds[j].par[i]);
@@ -102,9 +128,44 @@ static void video_issue_cmds(struct stbx25xx_video_cmd *cmds, u8 count)
 		set_video_reg_raw(CMD_STAT, 1);
 	}
 	
-	while(get_video_reg_raw(CMD_STAT) & 1);
+	i = 0;
+	while(get_video_reg_raw(CMD_STAT) & 1) {
+		usleep(10);
+		i++;
+		if(i > 100) {
+			err("video command timeout");
+			video_soft_reset();
+			return -1;
+		}
+	}
 	
-	local_irq_restore(flags);
+	return 0;
+}
+
+static int video_update_hw_config(void)
+{
+	struct stbx25xx_video_cmd cmd = {
+		.cmd = CMD_CFG,	.cnt = 1, .par = &params,
+	};
+	
+	if(video_issue_cmd(&cmd))
+		return -1;
+	
+	return 0;
+}
+
+static void video_restart_proc(void)
+{
+	struct stbx25xx_video_val reg;
+	
+	reg = get_video_reg(VIDEO_CNTL);
+	reg.video_cntl.svp = 0;
+	set_video_reg(VIDEO_CNTL, reg);
+	
+	set_video_reg_raw(PROC_IADDR, 0);
+	
+	reg.video_cntl.svp = 1;
+	set_video_reg(VIDEO_CNTL, reg);
 }
 
 static void video_set_anti_flicker(struct stbx25xx_dvb_dev *dvb, int mode)
@@ -150,7 +211,12 @@ static int video_set_source(struct stbx25xx_dvb_dev *dvb, video_stream_source_t 
 
 static int video_set_display_format(struct stbx25xx_dvb_dev *dvb, video_displayformat_t fmt)
 {
-	return -EINVAL;
+	stbx25xx_video_val reg;
+	
+	reg = get_video_reg(
+	switch(fmt) {
+		case VIDEO_PAN_SCAN:
+			
 }
 
 static int video_stillpicture(struct stbx25xx_dvb_dev *dvb, struct video_still_picture *pic)
@@ -180,12 +246,49 @@ static int video_set_stream_type(struct stbx25xx_dvb_dev *dvb, int type)
 
 static int video_set_format(struct stbx25xx_dvb_dev *dvb, video_format_t fmt)
 {
-	return -EINVAL;
+	stbx25xx_video_val reg;
+	
+	if(fmt == dvb->vid_state.video_format)
+		return 0;
+	
+	if(fmt != VIDEO_FORMAT_4_3 && fmt != VIDEO_FORMAT_16_9)
+		return -EINVAL;
+	
+	reg = get_video_reg(DISP_MODE);
+	reg.disp_mode.mon = (fmt == VIDEO_FORMAT_16_9);
+	set_video_reg(DISP_MODE);
+	
+	if(video_update_hw_config())
+		return -EINTERNAL;
+	
+	dvb->vid_state.video_format = fmt;
+	
+	return 0;
 }
 
 static int video_set_system(struct stbx25xx_dvb_dev *dvb, video_system_t sys)
 {
-	return -EINVAL;
+	u16 params = 0;
+
+	stbx25xx_video_val reg;
+	
+	if(sys == dvb->vid_system)
+		return 0;
+	
+	reg = get_video_reg(DISP_MODE);
+	reg.disp_mode.pal = (sys == VIDEO_SYSTEM_PAL);
+	set_video_reg(DISP_MODE);
+	
+	if(video_update_hw_config())
+		return -EINTERNAL;
+	
+	// TODO:
+	// denc_set_system(dvb, sys);
+	
+	dvb->vid_system = sys;
+	video_init_mem_pointers(dvb);
+	
+	return 0;
 }
 
 static void video_get_size(struct stbx25xx_dvb_dev *dvb, video_size_t *size)
@@ -206,11 +309,6 @@ static int video_clip_free(struct stbx25xx_dvb_dev *dvb)
 /**
 	Hardware setup
 */
-static void video_update_display_mode(void)
-{
-	set_video_reg(DISP_MODE, display_mode);
-}
-
 static void video_init_hw(struct stbx25xx_dvb_dev *dvb)
 {
 	stbx25xx_video_val reg;
@@ -220,12 +318,8 @@ static void video_init_hw(struct stbx25xx_dvb_dev *dvb)
 	set_video_reg(CICVCR, reg);
 	
 	set_video_reg_raw(VIDEO_MODE, 0);
-	
-	display_mode = def_display_mode;
-	video_update_display_mode();
-	
+	set_video_reg(DISP_MODE, def_display_mode);
 	set_video_reg(OSD_MODE, def_osd_mode);
-	
 	set_video_reg_raw(VBI_CNTL, 0);
 }
 
@@ -357,7 +451,7 @@ static int video_init_firmware(struct stbx25xx_dvb_dev *dvb)
 
 	/* upload the firmware */
 	set_video_reg_raw(WRT_PROT, 1);
-	set_video_reg_raw(PROC_IADDR, 0);
+	set_video_reg_raw(PROC_IADDR, 0x8000);
 	
 	for(i=0; i<8192; i+=2) {
 		word = (fw->data[i] << 8) | fw->data[i+1];
@@ -367,10 +461,64 @@ static int video_init_firmware(struct stbx25xx_dvb_dev *dvb)
 	set_video_reg_raw(PROC_IADDR, 0);
 	set_video_reg_raw(WRT_PROT, 0);
 	
+	/* verify the firmware */
+	set_video_reg_raw(WRT_PROT, 1);
+	set_video_reg_raw(PROC_IADDR, 0);
+	
+	for(i=0; i<8192; i+=2) {
+		set_video_reg_raw(PROC_IADDR, i >> 1);
+		word = (fw->data[i] << 8) | fw->data[i+1];
+		if(get_video_reg_raw(PROC_IDATA) != word) {
+			err("firmware verification failure at address %d!", i);
+			ret = -EAGAIN;
+			break;
+		}
+	}
+	
+	set_video_reg_raw(PROC_IADDR, 0);
+	set_video_reg_raw(WRT_PROT, 0);
+	
 	/* release the firmware after uploading */
 	release_firmware(fw);
 	
 	return ret;
+}
+
+static void video_init_mem_pointers(struct stbx25xx_dvb_dev *dvb)
+{
+	u32 fb_base;
+
+	if(dvb->vid_system == VIDEO_SYSTEM_PAL) {
+		fb_base = 0x16900; // use 0x16900 for 4MB PAL
+		
+		dvb->vfb_data[BUF2_LUM] = 0x0 + fb_base;
+		dvb->vfb_data[BUF2_CHR] = 0x65400 + fb_base;
+		dvb->vfb_data[BUF0_LUM] = 0x84e00 + fb_base;
+		dvb->vfb_data[BUF0_CHR] = 0xea200 + fb_base;
+		dvb->vfb_data[BUF1_LUM] = 0x11cc00 + fb_base;
+		dvb->vfb_data[BUF1_CHR] = 0x182000 + fb_base;
+		dvb->vfb_size[BUF2_LUM] = 0x65400;
+		dvb->vfb_size[BUF1_LUM] = 0x65400;
+		dvb->vfb_size[BUF0_LUM] = 0x65400;
+		dvb->vfb_size[BUF2_CHR] = 0x19e00;
+		dvb->vfb_size[BUF1_CHR] = 0x32a00;
+		dvb->vfb_size[BUF0_CHR] = 0x32a00;
+	} else {
+		fb_base = 0x21D00; // use 0x21D00 for NTSC
+		
+		dvb->vfb_data[BUF2_LUM] = 0x0 + fb_base;
+		dvb->vfb_data[BUF2_CHR] = 0x54600 + fb_base;
+		dvb->vfb_data[BUF0_LUM] = 0x89d00 + fb_base;
+		dvb->vfb_data[BUF0_CHR] = 0xde300 + fb_base;
+		dvb->vfb_data[BUF1_LUM] = 0x108600 + fb_base;
+		dvb->vfb_data[BUF1_CHR] = 0x15cc00 + fb_base;
+		dvb->vfb_size[BUF2_LUM] = 0x54600;
+		dvb->vfb_size[BUF1_LUM] = 0x54600;
+		dvb->vfb_size[BUF0_LUM] = 0x54600;
+		dvb->vfb_size[BUF2_CHR] = 0x2a300;
+		dvb->vfb_size[BUF1_CHR] = 0x2a300;
+		dvb->vfb_size[BUF0_CHR] = 0x2a300;
+	}
 }
 
 /**
@@ -492,9 +640,23 @@ int stbx25xx_video_open(struct inode *inode, struct file *file)
 	
 	if(dvb == NULL)
 		return -EINVAL;
-
+	
 	if ((err = dvb_generic_open(inode, file)) < 0)
 		return err;
+	
+	video_restart_proc();
+	
+	if(video_update_hw_config())
+		return -EINTERNAL;
+	
+	if((err = video_set_format(dvb, VIDEO_FORMAT_4_3)) != 0)
+		return err;
+		
+	video_set_display_format(dvb, VIDEO_CENTER_CUT_OUT);
+	video_set_display_border(0, 0);
+	video_vrb_reset(dvb, 0);
+	video_vfb_clear(dvb);
+	video_show();
 
 	if ((file->f_flags & O_ACCMODE) != O_RDONLY) {
 		/* empty event queue */
@@ -648,7 +810,8 @@ int stbx25xx_video_ioctl(struct inode *inode, struct file *file, unsigned int cm
 		break;
 
 	case VIDEO_CLEAR_BUFFER:
-		video_vrb_reset(dvb);
+		video_vfb_clear(dvb);
+		video_vrb_reset(dvb, 0);
 		break;
 
 	case VIDEO_SET_ID:
@@ -700,9 +863,6 @@ int stbx25xx_video_init(struct stbx25xx_dvb_dev *dvb)
 {
 	int ret;
 	u16 params = 0;
-	struct stbx25xx_video_cmd cmd = {
-		.cmd = CMD_CFG,	.cnt = 1, .par = &params,
-	};
 	
 	printk(KERN_INFO "--- STBx25xx MPEG-2 Video Decoder driver ---\n");
 	
@@ -711,25 +871,30 @@ int stbx25xx_video_init(struct stbx25xx_dvb_dev *dvb)
 	video_init_hw(dvb);
 	
 	if((ret = video_init_memory(dvb)) != 0) {
-		err("Memory initialization failed.");
+		err("memory initialization failed.");
 		goto err_mem;
 	}
 	
 	if((ret = video_init_firmware(dvb)) != 0) {
-		err("Firmware initialization failed.");
+		err("firmware initialization failed.");
 		goto err_fw;
 	}
 	
-	set_video_reg_raw(VIDEO_CNTL, 2);
-	
-	video_issue_cmd(&cmd);
-	
+#ifndef CONFIG_STBx25xx_NTSC
+	dvb->vid_system = VIDEO_SYSTEM_PAL;
+#else
+	dvb->vid_system = VIDEO_SYSTEM_NTSC;
+#endif
+
+	video_init_mem_pointers(dvb);
+		
 #if defined(CONFIG_FB) || defined(CONFIG_FB_MODULE)
 	stbx25xx_osd_init(dvb);
 #endif
 	
 	return 0;
-	
+
+err_dec:
 err_fw:
 	video_deinit_memory(dvb);
 err_mem:

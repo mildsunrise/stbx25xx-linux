@@ -90,10 +90,11 @@ struct stbx25xx_dvb_dev {
 	wait_queue_head_t aud_write_wq;
 	wait_queue_head_t vid_write_wq;
 	struct dvb_video_events vid_events;
+	video_system_t vid_system;
 	
 	/* Video decoder */
 	void *vfb_memory;
-	void *mpeg_memory; /* Memory */
+	void *mpeg_memory;
 	void *user_data;
 	void *vbi0_data;
 	void *vbi1_data;
@@ -101,6 +102,8 @@ struct stbx25xx_dvb_dev {
 	phys_addr_t clip_phys[2];
 	void *clip_data[2];
 	ssize_t clip_size[2];
+	u32 vfb_data[6];
+	u32 vfb_size[6];
 	
 	/* Audio decoder */
 
