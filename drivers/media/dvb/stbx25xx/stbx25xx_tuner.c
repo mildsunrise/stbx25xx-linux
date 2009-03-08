@@ -325,7 +325,7 @@ static void stx0288_reset(void)
 	msleep(20);
 }
 
-int stbx25xx_frontend_init(struct stbx25xx_dvb_dev *dvb)
+int stbx25xx_frontend_init(struct stbx25xx_dvb_data *dvb)
 {
 	int ret;
 	
@@ -367,7 +367,7 @@ int stbx25xx_frontend_init(struct stbx25xx_dvb_dev *dvb)
 	return 0;
 }
 
-void stbx25xx_frontend_exit(struct stbx25xx_dvb_dev *dvb)
+void stbx25xx_frontend_exit(struct stbx25xx_dvb_data *dvb)
 {
 	if(dvb->fe)
 		dvb_unregister_frontend(dvb->fe);

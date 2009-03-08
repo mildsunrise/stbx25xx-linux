@@ -177,6 +177,8 @@ typedef union {
 	
 	struct {
 		unsigned	:23;
+		#define QUEUE_BUCKET_ADAP	0
+		#define QUEUE_BUCKET_TS		1
 		unsigned bqdt	:1;
 		unsigned	:2;
 		unsigned bv	:1;

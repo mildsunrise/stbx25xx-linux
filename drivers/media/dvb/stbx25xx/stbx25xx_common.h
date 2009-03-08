@@ -21,7 +21,7 @@
 #include "dvb_net.h"
 #include "dvb_frontend.h"
 
-#define STBx25xx_MAX_FEED		30
+#define STBx25xx_MAX_FEED		29
 #define STBx25xx_QUEUE_COUNT		32
 #define STBx25xx_FILTER_BLOCK_COUNT	64
 #define STBx25xx_DEMUX1_IRQ_COUNT	15
@@ -48,57 +48,27 @@ struct dvb_video_events {
 	spinlock_t		  lock;
 };
 
-/* STBx25xx DVB device helper structure */
-struct stbx25xx_dvb_dev {
-	/* general */
-	struct device *dev; /* for firmware_class */
-	
-	/* interrupts */
-#define STBx25xx_IRQ_DEMUX	0
-#define STBx25xx_IRQ_AUDIO	1
-#define STBx25xx_IRQ_VIDEO	2
-#define STBx25xx_IRQ_TSDMA	3
-	int irq_num[4];
-
-#define FC_STATE_DVB_INIT 0x01
-#define FC_STATE_I2C_INIT 0x02
-#define FC_STATE_FE_INIT  0x04
-	int init_state;
-
-	/* dvb stuff */
-	struct i2c_adapter *i2c;
-	struct dvb_adapter dvb_adapter;
-	struct dvb_frontend *fe;
-	struct dvb_net dvbnet;
-	struct dvb_demux demux;
-	struct dmxdev dmxdev;
-	struct dmx_frontend hw_frontend;
-	struct dmx_frontend mem_frontend;
-//	int (*fe_sleep) (struct dvb_frontend *);
-
-	struct module *owner;
-
-//	/* options and status */
-//	int extra_feedcount;
-//	int feedcount;
-	
-	/* AV stuff */
-	struct dvb_device *audio;
-	struct dvb_device *video;
-	struct audio_status aud_state;
-	struct video_status vid_state;
-	wait_queue_head_t aud_write_wq;
-	wait_queue_head_t vid_write_wq;
-	struct dvb_video_events vid_events;
-	video_system_t vid_system;
-	
+struct stbx25xx_video_data {
 	/* Video decoder */
+	struct dvb_device *video;
+	struct video_status state;
+	wait_queue_head_t write_wq;
+	struct dvb_video_events events;
+	video_system_t system;
+	
+	/* Video Framebuffer */
 	void *vfb_memory;
+	u32 vfb_data[6];
+	u32 vfb_size[6];
+	
+	/* MPEG data */
 	void *mpeg_memory;
 	u8 *user_data;
 	void *vbi0_data;
 	void *vbi1_data;
 	void *rb_data;
+	
+	/* Clip mode */
 	phys_addr_t clip_phys[2];
 	void *clip_data[2];
 	ssize_t clip_size[2];
@@ -106,15 +76,13 @@ struct stbx25xx_dvb_dev {
 	u8 clip_rptr;
 	u8 clip_wptr;
 	struct completion clip_done;
-	u32 vfb_data[6];
-	u32 vfb_size[6];
+	
+	/* Still image */
 	video_stream_source_t old_source;
 	u8 still_mode;
 	struct completion still_done;
 	
-	/* Audio decoder */
-
-	/* Framebuffer */
+	/* OSD */
 	struct fb_info *fb_info[STBx25xx_FB_COUNT];
 	void *osd_memory;
 	void *osdg_data;
@@ -123,11 +91,67 @@ struct stbx25xx_dvb_dev {
 	struct mutex osd_mode_mutex;
 };
 
+struct stbx25xx_audio_data {
+	/* Audio decoder */
+	struct dvb_device *audio;
+	struct audio_status state;
+	wait_queue_head_t write_wq;
+};
+
+struct stbx25xx_demux_data {
+	/* Demux */
+	struct dvb_demux 	demux;
+	struct dmxdev 		dmxdev;
+	struct dmx_frontend 	hw_frontend;
+	struct dmx_frontend 	mem_frontend;
+	
+	/* Clock recovery */
+	u32 XpClkNpcrs;
+	u32 XpClkErrs;
+	u32 wXpClkPrevErr;
+	u32 XpClkPrevPcr;
+	u32 XpClkPrevStc;
+	s32 lXpClkPrevDelta;
+	u32 uwXpClkThreshold;
+	
+	/* Volatiles */
+	volatile u8 sync_av;
+	volatile u8 adjust_clk;
+	
+	/* Channel change */
+	struct semaphore vcc_wait;
+	struct semaphore acc_wait;
+	
+	/* Queue */
+	struct workqueue_struct *workqueue;
+};
+
+/* STBx25xx DVB device helper structure */
+struct stbx25xx_dvb_data {
+	/* general */
+	struct device	*dev;
+	struct module	*owner;
+	
+	/* interrupts */
+#define STBx25xx_IRQ_DEMUX	0
+#define STBx25xx_IRQ_AUDIO	1
+#define STBx25xx_IRQ_VIDEO	2
+#define STBx25xx_IRQ_TSDMA	3
+	unsigned int irq_num[4];
+
+	/* dvb stuff */
+	struct i2c_adapter 	*i2c;
+	struct dvb_adapter 	dvb_adapter;
+	struct dvb_frontend 	*fe;
+	struct dvb_net 		dvbnet;
+	
+	/* Private data of driver modules */
+	struct stbx25xx_video_data	video;
+	struct stbx25xx_audio_data	audio;
+	struct stbx25xx_demux_data	demux;
+};
+
 /* Function prototypes */
-extern u32 stbx25xx_demux_check_crc32(struct dvb_demux_feed *feed,
-			    const u8 *buf, size_t len);
-extern void stbx25xx_demux_memcopy(struct dvb_demux_feed *feed, u8 *dst,
-			 const u8 *src, size_t len);
 extern int stbx25xx_demux_connect_frontend(struct dmx_demux* demux,
 				 struct dmx_frontend* frontend);
 extern int stbx25xx_demux_disconnect_frontend(struct dmx_demux* demux);
@@ -136,31 +160,32 @@ extern int stbx25xx_demux_get_stc(struct dmx_demux* demux, unsigned int num,
 extern void stbx25xx_demux_before_after_tune(fe_status_t fe_status, void *data);
 extern int stbx25xx_demux_start_feed(struct dvb_demux_feed *feed);
 extern int stbx25xx_demux_stop_feed(struct dvb_demux_feed *feed);
-extern int stbx25xx_demux_write_to_decoder(struct dvb_demux_feed *feed,
-				 const u8 *buf, size_t len);
 				 
 extern ssize_t stbx25xx_video_write(struct file *file, const char *buf, size_t count, loff_t *ppos);
 extern int stbx25xx_video_open(struct inode *inode, struct file *file);
 extern int stbx25xx_video_release(struct inode *inode, struct file *file);
 extern unsigned int stbx25xx_video_poll(struct file *file, poll_table *wait);
 extern int stbx25xx_video_ioctl(struct inode *inode, struct file *file, unsigned int cmd, void *parg);
+extern void stbx25xx_video_sync_stc(u32 stcl, u32 stch);
+extern void stbx25xx_video_disable_sync(void);
 
 extern ssize_t stbx25xx_audio_write(struct file *file, const char *buf, size_t count, loff_t *ppos);
 extern int stbx25xx_audio_open(struct inode *inode, struct file *file);
 extern int stbx25xx_audio_release(struct inode *inode, struct file *file);
 extern unsigned int stbx25xx_audio_poll(struct file *file, poll_table *wait);
 extern int stbx25xx_audio_ioctl(struct inode *inode, struct file *file, unsigned int cmd, void *parg);
+extern void stbx25xx_audio_sync_stc(u32 stcl, u32 stch);
  
-extern int stbx25xx_video_init(struct stbx25xx_dvb_dev *);
-extern int stbx25xx_audio_init(struct stbx25xx_dvb_dev *);
-extern int stbx25xx_demux_init(struct stbx25xx_dvb_dev *);
-extern int stbx25xx_frontend_init(struct stbx25xx_dvb_dev *);
-extern int stbx25xx_osd_init(struct stbx25xx_dvb_dev *);
+extern int stbx25xx_video_init(struct stbx25xx_dvb_data *);
+extern int stbx25xx_audio_init(struct stbx25xx_dvb_data *);
+extern int stbx25xx_demux_init(struct stbx25xx_dvb_data *);
+extern int stbx25xx_frontend_init(struct stbx25xx_dvb_data *);
+extern int stbx25xx_osd_init(struct stbx25xx_dvb_data *);
 
-extern void stbx25xx_video_exit(struct stbx25xx_dvb_dev *);
-extern void stbx25xx_audio_exit(struct stbx25xx_dvb_dev *);
-extern void stbx25xx_demux_exit(struct stbx25xx_dvb_dev *);
-extern void stbx25xx_frontend_exit(struct stbx25xx_dvb_dev *);
-extern void stbx25xx_osd_exit(struct stbx25xx_dvb_dev *);
+extern void stbx25xx_video_exit(struct stbx25xx_dvb_data *);
+extern void stbx25xx_audio_exit(struct stbx25xx_dvb_data *);
+extern void stbx25xx_demux_exit(struct stbx25xx_dvb_data *);
+extern void stbx25xx_frontend_exit(struct stbx25xx_dvb_data *);
+extern void stbx25xx_osd_exit(struct stbx25xx_dvb_data *);
 
 #endif

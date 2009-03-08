@@ -24,6 +24,11 @@
 /**
 	Exported API calls
 */
+void stbx25xx_audio_sync_stc(u32 stcl, u32 stch)
+{
+	
+}
+
 ssize_t stbx25xx_audio_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 {
 	return 0;
@@ -52,12 +57,24 @@ int stbx25xx_audio_ioctl(struct inode *inode, struct file *file, unsigned int cm
 /**
 	Module init/exit
 */
-int stbx25xx_audio_init(struct stbx25xx_dvb_dev *dvb)
+int stbx25xx_audio_init(struct stbx25xx_dvb_data *dvb)
 {
+	struct stbx25xx_audio_data *aud = &dvb->audio;
+	
+	aud->state.AV_sync_state = 0;
+	aud->state.mute_state = 0;
+	aud->state.play_state = AUDIO_STOPPED;
+	aud->state.stream_source = AUDIO_SOURCE_DEMUX;
+	aud->state.channel_select = AUDIO_STEREO;
+	aud->state.bypass_mode = 1;
+	aud->state.mixer_state.volume_left = 0;
+	aud->state.mixer_state.volume_right = 0;
+	init_waitqueue_head(&aud->write_wq);
+	
 	return 0;
 }
 
-void stbx25xx_audio_exit(struct stbx25xx_dvb_dev *dvb)
+void stbx25xx_audio_exit(struct stbx25xx_dvb_data *dvb)
 {
 
 }

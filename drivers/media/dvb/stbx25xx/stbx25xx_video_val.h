@@ -78,8 +78,8 @@ typedef union {
 	
 	struct {
 		unsigned bgY	:8;
-		unsigned bgCr	:4;
 		unsigned bgCb	:4;
+		unsigned bgCr	:4;
 		unsigned sm	:3;
 		unsigned	:2;
 		unsigned pal	:1;

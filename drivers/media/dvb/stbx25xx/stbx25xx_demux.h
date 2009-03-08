@@ -39,6 +39,7 @@
 
 #define DEMUX_QUEUE_SEG_MASK	0xFF000000
 
+#define DEMUX_BUCKET_QUEUE	29
 #define DEMUX_AUDIO_QUEUE	30
 #define DEMUX_VIDEO_QUEUE	31
 
@@ -153,6 +154,31 @@
 #define TSDMA_STAT		0x02cb
 #define TSDMA_INTMSK		0x02ce
 
+/* Clock recovery */
+#define PWM_CLAMP               50       /* Sets the maximum rate of change  */
+                                         /* of the PWM value                 */
+					 
+#define STC_LOAD_PWM_CLAMP      100      /* Sets the maximum rate of change  */
+                                         /* just after the PWM value is read */
+					 
+#define PCRS_HIGH_GAIN          10       /* Number of PCRs after the STC is  */
+                                         /* loaded which will use            */
+                                         /* STC_LOAD_PWM_CLAMP               */
+					 
+#define RATE_GAIN               4        /* The calculated rate difference   */
+                                         /* is divided by RATE_GAIN ^ 2      */
+					 
+#define DELTA_GAIN              4        /* The calculated delta             */
+                                         /* is divided by DELTA_GAIN ^ 2     */
+					 
+#define LOW_THRESHOLD           32       /* Lower Delta Threshold for the    */
+                                         /* s/w clock recovery algorithm     */
+					 
+#define HIGH_THRESHOLD          256      /* Upper Delta Threshold for the    */
+                                         /* s/w clock recovery algorithm     */
+					 
+#define DECODER_SHIFT		((45000/1000) * 60 * -1)
+
 /* Structures */
 
 struct demux_queue {
@@ -167,23 +193,31 @@ struct demux_queue {
 #define QUEUE_CONFIG_DE		(1 << 5)
 #define QUEUE_CONFIG_SCPC	(1 << 6)
 #define QUEUE_CONFIG_APUS	(1 << 7)
-#define QUEUE_CONFIG_EN		(1 << 8)
+#define QUEUE_CONFIG_SYSTEM	(1 << 8)
+/* ^^^ Video and Audio queues use no memory and have interrupts disabled ^^^ */
 #define QUEUE_CONFIG_SECFLT	(1 << 9)
 #define QUEUE_CONFIG_SWDEMUX	(1 << 10)
-#define QUEUE_CONFIG_STOPPING	(1 << 11)
-#define QUEUE_CONFIG_ACTIVE	(1 << 15)
+//#define QUEUE_CONFIG_STOPPING	(1 << 11)
+//#define QUEUE_CONFIG_SUSPENDED	(1 << 14)
+//#define QUEUE_CONFIG_ACTIVE	(1 << 15)
 	u16 config;
 	u8 key;
+#define QUEUE_STATE_FREE	0
+#define QUEUE_STATE_STARTING	1
+#define QUEUE_STATE_ACTIVE	2
+#define QUEUE_STATE_STOPPING	3
+#define QUEUE_STATE_SUSPENDED	4
+#define QUEUE_STATE_SYSTEM	5
+	volatile u8 state;
 	u32 data_count;
 	spinlock_t lock;
 	struct work_struct work;
-	struct workqueue_struct *workqueue;
-	char name[32];
 	struct dvb_demux_feed *feed;
 	struct dvb_demux *demux;
 	struct list_head filters;
 	struct list_head list;
 	size_t (*cb)(struct demux_queue *, void *, size_t, void *, size_t);
+	struct stbx25xx_demux_data *dmx;
 };
 
 struct filter_block {

@@ -13,15 +13,15 @@
 #include "stbx25xx_video_val.h"
 
 /* Interrupts */
-#define VIDEO_IRQ			3
+// #define VIDEO_IRQ			3
 #define STBx25xx_VIDEO_IRQ_COUNT	32
 
 /* Misc */
-#define VBI_LINES	16
-#define CLIP_COUNT	2	/* 2 clips for ping-pong buffer */
+#define VBI_LINES	16	/* VBI uses up to 16 video lines */
+#define CLIP_COUNT	2	/* Clip mode uses two buffers working in ping-pong mode */
 #define STBx25xx_VIDEO_CAPS	(VIDEO_CAP_MPEG1 | VIDEO_CAP_MPEG2)
 
-/* Memory map */
+/* Memory map - physical addresses of memory areas used by video decoder */
 #define VIDEO_FB_BASE		0xA0000000	/* Video Framebuffers Memory */
 #define VIDEO_FB_SIZE		0x200000	/* First 2 MB of the second memory bank */
 #define VIDEO_MPEG_BASE		0xA0200000	/* MPEG Video Decoder Memory */
@@ -29,47 +29,48 @@
 #define VIDEO_OSD_BASE		0x03E00000	/* OSD Framebuffer Memory */
 #define VIDEO_OSD_SIZE		0x200000	/* Last 2 MB of the first memory bank */
 
-/* Video decoder segments */
-/* FB data */
-#define SEG0_BASE		VIDEO_FB_BASE
-#define SEG0_SIZE		1
-#define SEG0_ADDR		0x00000000
-/* MPEG data */
-#define SEG1_BASE		VIDEO_MPEG_BASE
-#define SEG1_SIZE		1
-#define SEG1_ADDR		(SEG0_ADDR + (0x100000 << SEG0_SIZE))
-/* OSD data */
-#define SEG2_BASE		VIDEO_OSD_BASE
-#define SEG2_SIZE		1
-#define SEG2_ADDR		(SEG1_ADDR + (0x100000 << SEG1_SIZE))
+/* Video decoder segments - only SEG0 to SEG2 are used */
+#define SEG0_BASE		VIDEO_FB_BASE	/* FB data */
+#define SEG0_SIZE		1		/* 2 MegaBytes */
+#define SEG0_ADDR		0x00000000	/* Beginning of decoder's address space */
+#define SEG1_BASE		VIDEO_MPEG_BASE	/* MPEG data */
+#define SEG1_SIZE		1		/* 2 MegaBytes */
+#define SEG1_ADDR		(SEG0_ADDR + (0x100000 << SEG0_SIZE))	/* After SEG0 */
+#define SEG2_BASE		VIDEO_OSD_BASE	/* OSD data */
+#define SEG2_SIZE		1		/* 2 MegaBytes */
+#define SEG2_ADDR		(SEG1_ADDR + (0x100000 << SEG1_SIZE))	/* After SEG1 */
 
-/* Offset within Video memory */
-#define VFB_OFFSET		0x00000000
-#define VFB_SIZE		0x200000
-#define BUF0_LUM		0
-#define BUF0_CHR		1
-#define BUF1_LUM		2
-#define BUF1_CHR		3
-#define BUF2_LUM		4
-#define BUF2_CHR		5
+/* Offset within Video memory for calculating addresses in both address spaces */
+#define VFB_OFFSET		0x00000000	/* Start of VIDEO_FB_BASE */
+#define VFB_SIZE		(2*1024*1024)	/* 2 MegaBytes */
 
-/* Offsets within OSD memory */
-#define FB0_OFFSET		0x00000000
-#define FB0_SIZE		0x100000
-#define FB1_OFFSET		(FB0_SIZE)
-#define FB1_SIZE		0xe0000
-#define CUR_OFFSET		(FB0_SIZE + FB1_SIZE)
-#define CUR_SIZE		0x10000
+/* Dynamically calculated offsets
+ * to video framebuffers are stored
+ * in array utilising followin indices */
+#define BUF0_LUM		0	/* B-Frame buffer luma */
+#define BUF0_CHR		1	/* B-Frame buffer chroma */
+#define BUF1_LUM		2	/* Reference buffer 0 luma */
+#define BUF1_CHR		3	/* Reference buffer 0 chroma */
+#define BUF2_LUM		4	/* Reference buffer 1 luma */
+#define BUF2_CHR		5	/* Reference buffer 1 chroma */
 
-/* Offsets within MPEG memory */
-#define	USER_OFFSET		0x00000000
-#define USER_SIZE		0x400
-#define VBI0_OFFSET		(USER_SIZE)
-#define VBI0_SIZE		(VBI_LINES*1440)
-#define VBI1_OFFSET		(USER_SIZE + VBI0_SIZE)
-#define VBI1_SIZE		(VBI_LINES*1440)
-#define RB_OFFSET		(USER_SIZE + VBI0_SIZE + VBI1_SIZE)
-#define RB_SIZE			(VIDEO_MPEG_SIZE - USER_SIZE - VBI0_SIZE - VBI1_SIZE)
+/* Offsets within OSD memory for calculating addresses in both address spaces */
+#define FB0_OFFSET		0x00000000	/* Start of VIDEO_OSD_BASE - Graphic Plane */
+#define FB0_SIZE		(1024*1024)	/* 1 MegaByte */
+#define FB1_OFFSET		(FB0_SIZE)	/* Just after FB0 - Image Plane */
+#define FB1_SIZE		(896*1024)	/* 896 KiloBytes */
+#define CUR_OFFSET		(FB0_SIZE + FB1_SIZE)	/* Just after FB1 - Cursor Plane */
+#define CUR_SIZE		(128*1024)	/* 128 KiloBytes */
+
+/* Offsets within MPEG memory for calculating addresses in both address spaces */
+#define	USER_OFFSET		0x00000000	/* Start of VIDEO_MPEG_BASE */
+#define USER_SIZE		512		/* 512 bytes of User Data */
+#define VBI0_OFFSET		(USER_SIZE)	/* Just after User Data */
+#define VBI0_SIZE		(VBI_LINES*1440)	/* First VBI data */
+#define VBI1_OFFSET		(USER_SIZE + VBI0_SIZE) /* After first VBI */
+#define VBI1_SIZE		(VBI_LINES*1440)	/* Second VBI data */
+#define RB_OFFSET		(USER_SIZE + VBI0_SIZE + VBI1_SIZE)	/* Rate buffer */
+#define RB_SIZE			(VIDEO_MPEG_SIZE - USER_SIZE - VBI0_SIZE - VBI1_SIZE)	/* Rest of the MPEG memory */
 
 /* Video format definitions */
 #define VID_WIDTH		720

@@ -69,6 +69,8 @@ struct stbx25xx_color_entry {
 	unsigned y	:6;
 	unsigned cb	:4;
 	unsigned cr	:4;
+#define CLR_A_BL_EN	2
+#define CLR_A_FILL_EN	1
 	unsigned a	:2;
 };
 #pragma pack()
@@ -89,7 +91,7 @@ struct stbx25xx_par {
 	struct stbx25xx_osd_hdr_ext	*ext;
 	struct stbx25xx_color_entry	*pal;
 	size_t				mem_size;
-	struct stbx25xx_dvb_dev		*dvb;
+	struct stbx25xx_video_data	*video;
 };
 
 static struct fb_fix_screeninfo stbx25xxfb_fix[STBx25xx_FB_COUNT] = {
@@ -174,7 +176,43 @@ u32 pseudo_palette[32] = { 0, };
 
 int stbx25xxfb_init(void);
 
-struct mutex osd_mode_mutex;
+static int osd_disable(struct stbx25xx_video_data *vid, int type)
+{
+	stbx25xx_video_val reg;
+	
+	if(mutex_lock_killable(&vid->osd_mode_mutex))
+		return -ERESTARTSYS;
+	
+	reg = get_video_reg(OSD_MODE);
+	if(type == FB_TYPE_GRP)
+		reg.osd_mode.gle = 0;
+	else
+		reg.osd_mode.ile = 0;
+	set_video_reg(OSD_MODE, reg);
+	
+	mutex_unlock(&vid->osd_mode_mutex);
+	
+	return 0;
+}
+
+static int osd_enable(struct stbx25xx_video_data *vid, int type)
+{
+	stbx25xx_video_val reg;
+	
+	if(mutex_lock_killable(&vid->osd_mode_mutex))
+		return -ERESTARTSYS;	
+	
+	reg = get_video_reg(OSD_MODE);
+	if(type == FB_TYPE_GRP)
+		reg.osd_mode.gle = 1;
+	else
+		reg.osd_mode.ile = 1;
+	set_video_reg(OSD_MODE, reg);
+	
+	mutex_unlock(&vid->osd_mode_mutex);
+	
+	return 0;
+}
 
 static int stbx25xxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
@@ -238,7 +276,7 @@ static int stbx25xxfb_setcolreg(unsigned regno, unsigned red, unsigned green,
 		par->pal[regno].y = y >> 2;
 		par->pal[regno].cb = cb >> 4;
 		par->pal[regno].cr = cr >> 4;
-		par->pal[regno].a = 0;
+		par->pal[regno].a = CLR_A_BL_EN;
 		
 		return 0;
 	}
@@ -270,7 +308,7 @@ static int stbx25xxfb_set_par(struct fb_info *info)
 	
 	dprintk("%s\n", __func__);
 	
-	if(mutex_lock_killable(&par->dvb->osd_mode_mutex))
+	if(mutex_lock_killable(&par->video->osd_mode_mutex))
 		return -ERESTARTSYS;
 	
 	reg = get_video_reg(OSD_MODE);
@@ -312,58 +350,25 @@ static int stbx25xxfb_set_par(struct fb_info *info)
 			goto exit;
 	}
 	
-	if(par->type == FB_TYPE_GRP)
+	if(par->type == FB_TYPE_GRP) {
 		reg.osd_mode.gle = ena;
-	else
+	} else {
 		reg.osd_mode.ile = ena;
+	}
 	set_video_reg(OSD_MODE, reg);
 	
 exit:
-	mutex_unlock(&par->dvb->osd_mode_mutex);
+	mutex_unlock(&par->video->osd_mode_mutex);
 
 	return ret;
-}
-
-static void osd_disable(struct stbx25xx_dvb_dev *dvb, int type)
-{
-	stbx25xx_video_val reg;
-	
-	if(mutex_lock_killable(&dvb->osd_mode_mutex))
-		return;
-	
-	reg = get_video_reg(OSD_MODE);
-	if(type == FB_TYPE_GRP)
-		reg.osd_mode.gle = 0;
-	else
-		reg.osd_mode.ile = 0;
-	set_video_reg(OSD_MODE, reg);
-	
-	mutex_unlock(&dvb->osd_mode_mutex);
-}
-
-static void osd_enable(struct stbx25xx_dvb_dev *dvb, int type)
-{
-	stbx25xx_video_val reg;
-	
-	if(mutex_lock_killable(&dvb->osd_mode_mutex))
-		return;	
-	
-	reg = get_video_reg(OSD_MODE);
-	if(type == FB_TYPE_GRP)
-		reg.osd_mode.gle = 1;
-	else
-		reg.osd_mode.ile = 1;
-	set_video_reg(OSD_MODE, reg);
-	
-	mutex_unlock(&dvb->osd_mode_mutex);
 }
 
 static void osd_set_blending(struct fb_info *info, unsigned long arg)
 {
 	struct stbx25xx_par *par = info->par;
 	
-	if(arg > 64)
-		arg = 64;
+	if(arg > 63)
+		arg = 63;
 	
 	par->hdr->blend = arg >> 2;
 	par->ext->bl_lvl = arg & 3;
@@ -373,8 +378,8 @@ static void osd_set_shading(struct fb_info *info, unsigned long arg)
 {
 	struct stbx25xx_par *par = info->par;
 	
-	if(arg > 64)
-		arg = 64;
+	if(arg > 63)
+		arg = 63;
 	
 	par->hdr->shade = arg >> 2;
 	par->ext->sh_lvl = arg & 3;
@@ -397,24 +402,27 @@ static int stbx25xxfb_ioctl(struct fb_info *info, unsigned int cmd,
 	
 	switch(cmd) {
 	case STB_FB_HIDE:
-		osd_disable(par->dvb, par->type);
-		break;
+		return osd_disable(par->video, par->type);
+
 	case STB_FB_SHOW:
-		osd_enable(par->dvb, par->type);
-		break;
+		return osd_enable(par->video, par->type);
+
 	case STB_FB_SETBLEND:
 		if(par->type != FB_TYPE_GRP)
 			return -EINVAL;
 		osd_set_blending(info, arg);
 		break;
+		
 	case STB_FB_SETSHADE:
 		if(par->type != FB_TYPE_GRP)
 			return -EINVAL;
 		osd_set_shading(info, arg);
 		break;
+		
 	case STB_FB_SETAF:
 		osd_set_af(info, arg);
 		break;
+		
 	default:
 		return -ENOIOCTLCMD;
 	}
@@ -443,16 +451,15 @@ static struct fb_ops stbx25xxfb_ops = {
      *  Initialization
      */
 
-int stbx25xx_osd_init(struct stbx25xx_dvb_dev *dvb)
+int stbx25xx_osd_init(struct stbx25xx_dvb_data *dvb)
 {
 	struct fb_info *info;
 	struct stbx25xx_par *par;
-	struct device *device = dvb->dev; /* or &pdev->dev */
+	struct device *device = dvb->dev;
+	struct stbx25xx_video_data *vid = &dvb->video;
 	int i;	
 	u32 addr;
-	
-	mutex_init(&osd_mode_mutex);
-	
+		
 	for(i = 0; i < STBx25xx_FB_COUNT; i++) {
 		/*
 		* Dynamically allocate info and par
@@ -471,15 +478,15 @@ int stbx25xx_osd_init(struct stbx25xx_dvb_dev *dvb)
 #else
 		par->mode = FB_MODE_PAL;
 #endif
-		par->dvb = dvb;
+		par->video = vid;
 
 		switch(par->type) {
 			case FB_TYPE_GRP:
-				info->screen_base = dvb->osdg_data;
+				info->screen_base = vid->osdg_data;
 				par->mem_size = FB0_SIZE;
 				break;
 			case FB_TYPE_IMG:
-				info->screen_base = dvb->osdi_data;
+				info->screen_base = vid->osdi_data;
 				par->mem_size = FB1_SIZE;
 				break;
 		}
@@ -547,7 +554,7 @@ int stbx25xx_osd_init(struct stbx25xx_dvb_dev *dvb)
 		info->screen_base = (void *)addr;
 		
 		/* Needed for mmap() */
-		info->fix.smem_start = VIDEO_OSD_BASE + ((void *)par->hdr - (void *)dvb->osd_memory) + ((void *)info->screen_base - (void *)par->hdr);
+		info->fix.smem_start = VIDEO_OSD_BASE + ((void *)par->hdr - (void *)vid->osd_memory) + ((void *)info->screen_base - (void *)par->hdr);
 		info->fix.smem_len = par->mem_size;
 
 		
@@ -555,7 +562,7 @@ int stbx25xx_osd_init(struct stbx25xx_dvb_dev *dvb)
 		"-> Color table @ %p\n-> Video data: 0x%08x @ %p (%d bytes)\n",
 			 info->fix.id, par->hdr, par->ext, par->pal, info->fix.smem_start, info->screen_base, par->mem_size);
 		
-//		set_video_reg_raw(VID0_GPBASE - i, (SEG2_ADDR + ((void *)par->hdr - (void *)dvb->osd_memory)) / 128);
+//		set_video_reg_raw(VID0_GPBASE - i, (SEG2_ADDR + ((void *)par->hdr - (void *)vid->osd_memory)) / 128);
 		set_video_reg_raw(VID0_GSLA + i, 0);
 
 		/*
@@ -570,12 +577,12 @@ int stbx25xx_osd_init(struct stbx25xx_dvb_dev *dvb)
 			return -EINVAL;
 		}
 		
-		osd_enable(dvb, i);
+		osd_enable(vid, i);
 		
 		printk(KERN_INFO "fb%d: %s frame buffer device (%s mode)\n", info->node,
 			info->fix.id, (par->mode == FB_MODE_PAL) ? "PAL" : "NTSC");
 		
-		dvb->fb_info[i] = info;
+		vid->fb_info[i] = info;
 	}
 		
 	return 0;
@@ -584,14 +591,16 @@ int stbx25xx_osd_init(struct stbx25xx_dvb_dev *dvb)
     /*
      *  Cleanup
      */
-void stbx25xx_osd_exit(struct stbx25xx_dvb_dev *dvb)
+void stbx25xx_osd_exit(struct stbx25xx_dvb_data *dvb)
 {
+	struct stbx25xx_video_data *vid = &dvb->video;
 	struct fb_info *info;
 	int i;
-	stbx25xx_video_val reg;
 	
 	for(i = 0; i < STBx25xx_FB_COUNT; i++) {
-		info = dvb->fb_info[i];
+		info = vid->fb_info[i];
+		
+		osd_disable(vid, i);
 		
 		if (info) {
 			unregister_framebuffer(info);
@@ -600,11 +609,6 @@ void stbx25xx_osd_exit(struct stbx25xx_dvb_dev *dvb)
 			framebuffer_release(info);
 		}
 	}
-	
-	reg = get_video_reg(OSD_MODE);
-	reg.osd_mode.gle = 0;
-	reg.osd_mode.ile = 0;
-	set_video_reg(OSD_MODE, reg);
 }
 
 #endif
