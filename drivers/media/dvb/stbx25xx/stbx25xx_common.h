@@ -55,6 +55,7 @@ struct stbx25xx_video_data {
 	wait_queue_head_t write_wq;
 	struct dvb_video_events events;
 	video_system_t system;
+	u32 sfm;
 	
 	/* Video Framebuffer */
 	void *vfb_memory;

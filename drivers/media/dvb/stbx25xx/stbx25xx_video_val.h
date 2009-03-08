@@ -85,6 +85,10 @@ typedef union {
 		unsigned pal	:1;
 		unsigned	:2;
 		unsigned dyc	:2;
+		#define SFM_NORMAL	0
+		#define SFM_BOTTOM	1
+		#define SFM_TOP		2
+		#define SFM_FIRST	3
 		unsigned sfm	:2;
 		#define DF_PSCAN	0
 		#define DF_LBOX		1

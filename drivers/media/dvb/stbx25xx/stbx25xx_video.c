@@ -359,6 +359,20 @@ static int video_set_format(struct stbx25xx_video_data *vid, video_format_t fmt)
 	return 0;
 }
 
+static void video_set_sfm(struct stbx25xx_video_data *vid, int sfm)
+{
+	stbx25xx_video_val reg;
+	
+	if(vid->sfm != SFM_NORMAL)
+		return;
+	
+	reg = get_video_reg(DISP_MODE);
+	reg.disp_mode.sfm = sfm;
+	set_video_reg(DISP_MODE, reg);
+	
+	vid->sfm = sfm;
+}
+
 static void video_init_mem_pointers(struct stbx25xx_video_data *vid)
 {
 	u32 fb_base;

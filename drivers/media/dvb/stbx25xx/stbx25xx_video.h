@@ -70,9 +70,9 @@
 #define VBI1_OFFSET		(USER_SIZE + VBI0_SIZE) /* After first VBI */
 #define VBI1_SIZE		(VBI_LINES*1440)	/* Second VBI data */
 #define RB_OFFSET		(USER_SIZE + VBI0_SIZE + VBI1_SIZE)	/* Rate buffer */
-#define RB_SIZE			(VIDEO_MPEG_SIZE - USER_SIZE - VBI0_SIZE - VBI1_SIZE)	/* Rest of the MPEG memory */
+#define RB_SIZE			(VIDEO_MPEG_SIZE - USER_SIZE - VBI0_SIZE - VBI1_SIZE)	/* Rest of MPEG memory */
 
-/* Video format definitions */
+/* Video format definitions - self explanatory */
 #define VID_WIDTH		720
 #define VID_HEIGHT_PAL		576
 #define VID_HEIGHT_NTSC		480
