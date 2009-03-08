@@ -25,6 +25,7 @@
 #include "stbx25xx.h"
 #include "stbx25xx_video.h"
 #include <linux/firmware.h>
+#include <linux/proc_fs.h>
 
 static stbx25xx_video_val def_display_mode = {
 	.disp_mode = {
@@ -63,6 +64,7 @@ struct stbx25xx_video_cmd {
 u32 video_int_mask;
 typedef void (*video_irq_handler_t)(struct stbx25xx_video_data *vid, int irq);
 static video_irq_handler_t video_int_handlers[STBx25xx_VIDEO_IRQ_COUNT];
+static u32 irq_stats[STBx25xx_VIDEO_IRQ_COUNT];
 
 static irqreturn_t video_interrupt(int irq, void *data)
 {
@@ -70,11 +72,12 @@ static irqreturn_t video_interrupt(int irq, void *data)
 	u32 mask = get_video_reg_raw(VIDEO_INT) & video_int_mask;
 	int i;
 	
-	dprintk("%s: IRQ Status = 0x%08x\n", __func__, mask);
-	
 	for(i = STBx25xx_VIDEO_IRQ_COUNT - 1; i >= 0 && mask; i--, mask >>= 1) {
-		if((mask & 1) && (video_int_handlers[i]))
-			video_int_handlers[i](vid, i);
+		if(mask & 1) {
+			irq_stats[i]++;
+			if(video_int_handlers[i])
+				video_int_handlers[i](vid, i);
+		}
 	}
 	
 	return IRQ_HANDLED;
@@ -86,6 +89,9 @@ static void video_install_int_handler(int irq, video_irq_handler_t handler)
 	
 	if(irq >= STBx25xx_VIDEO_IRQ_COUNT)
 		return;
+	
+	if(video_int_handlers[irq])
+		dprintk("%s: Replacing interrupt handler (IRQ %d)\n", __func__, irq);
 	
 	local_irq_save(flags);
 	video_int_handlers[irq] = handler;
@@ -99,6 +105,9 @@ static void video_remove_int_handler(int irq)
 	if(irq >= STBx25xx_VIDEO_IRQ_COUNT)
 		return;
 	
+	if(!video_int_handlers[irq])
+		dprintk("%s: Interrupt handler already free (IRQ %d)\n", __func__, irq);
+	
 	local_irq_save(flags);
 	video_int_handlers[irq] = NULL;
 	local_irq_restore(flags);
@@ -111,24 +120,52 @@ static void video_remove_int_handler(int irq)
 static inline void video_soft_reset(void)
 {
 	set_video_reg_raw(CMD_STAT, 0);
-	set_video_reg_raw(PROC_IADDR, 0x8200);
+	set_video_reg_raw(PROC_IADDR, 0x8200);	
 }
 
-static int video_issue_cmd(struct stbx25xx_video_cmd *cmd)
+static inline int video_force_cmd(void)
 {
 	int i;
+	
+	video_soft_reset();
+	
+	set_video_reg_raw(CMD, CMD_RB_RST | CMD_CHAIN);
+	set_video_reg_raw(CMD_ADDR, 0);
+	set_video_reg_raw(CMD_DATA, 0);
+	set_video_reg_raw(CMD_STAT, 1);
 	
 	i = 0;
 	while(get_video_reg_raw(CMD_STAT) & 1) {
 		msleep(1);
 		i++;
- 		if(i > 10) {
-			err("video command timeout");
-			video_soft_reset();
+ 		if(i > VIDEO_CMD_TIMEOUT_MS) {
 			return -1;
 		}
 	}
 	
+	return 0;
+}
+
+static int video_issue_cmd(struct stbx25xx_video_cmd *cmd)
+{
+	int i;
+	int force = 1;
+	
+	i = 0;
+	while(get_video_reg_raw(CMD_STAT) & 1) {
+		msleep(1);
+		i++;
+ 		if(i > VIDEO_CMD_TIMEOUT_MS) {
+			if(video_force_cmd()) {
+				err("Host command interface stuck!");
+				video_soft_reset();
+				return -1;
+			}
+			break;
+		}
+	}
+	
+retry:
 	set_video_reg_raw(CMD, cmd->cmd);
 	for(i=0; i<cmd->cnt; i++) {
 		set_video_reg_raw(CMD_ADDR, i);
@@ -140,10 +177,22 @@ static int video_issue_cmd(struct stbx25xx_video_cmd *cmd)
 	while(get_video_reg_raw(CMD_STAT) & 1) {
 		msleep(1);
 		i++;
-		if(i > 10) {
-			err("video command timeout");
-			video_soft_reset();
-			return -1;
+ 		if(i > VIDEO_CMD_TIMEOUT_MS) {
+			if(!force) {
+				err("Video command timeout!");
+				video_soft_reset();
+				return -1;
+			}
+			
+			if(video_force_cmd()) {
+				err("Host command interface stuck!");
+				video_soft_reset();
+				return -1;
+			}
+			
+			dprintk("%s: Forcing command to be executed\n", __func__);
+			force = 0;
+			goto retry;
 		}
 	}
 	
@@ -152,38 +201,11 @@ static int video_issue_cmd(struct stbx25xx_video_cmd *cmd)
 
 static int video_issue_cmds(struct stbx25xx_video_cmd *cmds, u8 count)
 {
-	int i, j;
+	int i;
 	
-	for(j = 0; j < count; j++) {
-		i = 0;
-		while(get_video_reg_raw(CMD_STAT) & 1) {
-			msleep(1);
-			i++;
-			if(i > 10) {
-				err("video command timeout");
-				video_soft_reset();
-				return -1;
-			}
-		}
-		
-		set_video_reg_raw(CMD, cmds[j].cmd);
-		for(i = 0; i < cmds[j].cnt; i++) {
-			set_video_reg_raw(CMD_ADDR, i);
-			set_video_reg_raw(CMD_DATA, cmds[j].par[i]);
-		}
-		set_video_reg_raw(CMD_STAT, 1);
-	}
-	
-	i = 0;
-	while(get_video_reg_raw(CMD_STAT) & 1) {
-		msleep(1);
-		i++;
-		if(i > 10) {
-			err("video command timeout");
-			video_soft_reset();
+	for(i=0; i<count; i++)
+		if(video_issue_cmd(&cmds[i]))
 			return -1;
-		}
-	}
 	
 	return 0;
 }
@@ -305,13 +327,10 @@ static int video_fastforward(struct stbx25xx_video_data *vid, int n)
 
 static int video_frame_switch(int mode)
 {
-	u16 p0 = 0, p1 = mode;
-	struct stbx25xx_video_cmd cmds[2] = {
-		{ .cmd = CMD_RB_RST | CMD_CHAIN, .cnt = 1, .par = &p0 },
-		{ .cmd = CMD_FRM_SW, .cnt = 1, .par = &p1 },
-	};
+	u16 p0 = mode;
+	struct stbx25xx_video_cmd cmd = { .cmd = CMD_FRM_SW, .cnt = 1, .par = &p0 };
 	
-	return video_issue_cmds(cmds, 2);
+	return video_issue_cmd(&cmd);
 }
 
 static int video_slow(struct stbx25xx_video_data *vid, int n)
@@ -519,7 +538,6 @@ static int video_clip_free(struct stbx25xx_video_data *vid)
 static int video_clip_queue(struct stbx25xx_video_data *vid, const char *buf, size_t count, int nonblocking)
 {
 	size_t size, sent;
-	unsigned long flags;
 	stbx25xx_video_val reg;
 	
 	if(vid->state.stream_source != VIDEO_SOURCE_MEMORY)
@@ -528,16 +546,13 @@ static int video_clip_queue(struct stbx25xx_video_data *vid, const char *buf, si
 	sent = 0;
 	
 	while(count) {
-		local_irq_save(flags);
-		if(vid->clip_busy[vid->clip_wptr]) {
+		if(!video_clip_free(vid)) {
 			if(nonblocking) {
-				local_irq_restore(flags);
 				return sent ?: -EAGAIN;
 			}
 		} else {
 			wait_for_completion(&vid->clip_done);
 		}
-		local_irq_restore(flags);
 		
 		reg.raw = 0;
 		if(vid->clip_size[vid->clip_wptr] > count) {
@@ -883,6 +898,74 @@ static int video_init_firmware(struct stbx25xx_video_data *vid)
 	release_firmware(fw);
 	
 	return ret;
+}
+
+/**
+	procfs
+*/
+
+static int video_show_irqs(struct seq_file *p, void *v)
+{
+	int i = *(loff_t *)v, j;
+	unsigned long flags;
+	
+	local_irq_save(flags);
+	j = irq_stats[i];
+	local_irq_restore(flags);
+	
+	seq_printf(p, "%2d: %d\n", i, j);
+	
+	return 0;
+}
+
+static void *video_seq_istart(struct seq_file *f, loff_t *pos)
+{
+	return (*pos < STBx25xx_VIDEO_IRQ_COUNT) ? pos : NULL;
+}
+
+static void *video_seq_inext(struct seq_file *f, void *v, loff_t *pos)
+{
+	(*pos)++;
+	if (*pos >= STBx25xx_VIDEO_IRQ_COUNT)
+		return NULL;
+	return pos;
+}
+
+static void video_seq_istop(struct seq_file *f, void *v)
+{
+	/* Nothing to do */
+}
+
+static const struct seq_operations video_seq_iops = {
+	.start = video_seq_istart,
+	.next  = video_seq_inext,
+	.stop  = video_seq_istop,
+	.show  = video_show_irqs
+};
+
+static int video_iopen(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &video_seq_iops);
+}
+
+static const struct file_operations proc_video_iops = {
+	.open           = video_iopen,
+	.read           = seq_read,
+	.llseek         = seq_lseek,
+	.release        = seq_release,
+};
+
+static struct proc_dir_entry *video_proc_irqs;
+
+#define VIDEO_PROC_IRQS_NAME	"video_interrupts"
+static void video_init_procfs(void)
+{
+	video_proc_irqs = proc_create(VIDEO_PROC_IRQS_NAME, 0, stbx25xx_proc_dir, &proc_video_iops);
+}
+
+static void video_deinit_procfs(void)
+{
+	remove_proc_entry(VIDEO_PROC_IRQS_NAME, stbx25xx_proc_dir);
 }
 
 /**
@@ -1279,6 +1362,7 @@ int stbx25xx_video_init(struct stbx25xx_dvb_data *dvb)
 	init_completion(&vid->still_done);
 	vid->still_mode = 0;
 	
+	memset(irq_stats, 0, sizeof(u32) * STBx25xx_VIDEO_IRQ_COUNT);
 	video_int_mask = VIDEO_BRC | VIDEO_ACCC | VIDEO_SERR | VIDEO_PRC;
 	
 	for(i = 0; i < STBx25xx_VIDEO_IRQ_COUNT; i++)
@@ -1312,6 +1396,8 @@ int stbx25xx_video_init(struct stbx25xx_dvb_data *dvb)
 #if defined(CONFIG_FB) || defined(CONFIG_FB_MODULE)
 	stbx25xx_osd_init(dvb);
 #endif
+
+	video_init_procfs();
 	
 	return 0;
 
@@ -1326,9 +1412,8 @@ err_irq:
 void stbx25xx_video_exit(struct stbx25xx_dvb_data *dvb)
 {
 	struct stbx25xx_video_data *vid = &dvb->video;
-	/* TODO: Disable the hardware (?) */
-	
-	/* TODO: Tidy up */
+
+	video_init_procfs();
 
 #if defined(CONFIG_FB) || defined(CONFIG_FB_MODULE)
 	stbx25xx_osd_exit(dvb);

@@ -241,6 +241,18 @@ static int stbx25xx_dvb_map_irqs(struct of_device *ofdev, struct stbx25xx_dvb_da
 	return 0;
 }
 
+#define STBx25xx_PROC_NAME	"stbx25xx"
+struct proc_dir_entry *stbx25xx_proc_dir;
+
+static void stbx25xx_procfs_init()
+{
+	stbx25xx_proc_dir = proc_mkdir(STBx25xx_PROC_NAME, NULL);
+}
+
+static void stbx25xx_procfs_exit()
+{
+	remove_proc_entry(STBx25xx_PROC_NAME, NULL);
+}
 
 static int stbx25xx_adapter_probe(struct of_device *dev, const struct of_device_id *match)
 {
@@ -260,6 +272,8 @@ static int stbx25xx_adapter_probe(struct of_device *dev, const struct of_device_
 	platform_set_drvdata(dev, dvb);
 	
 	dvb->dev = &dev->dev;
+	
+	stbx25xx_procfs_init();
 	
 	if ((ret = stbx25xx_dvb_map_irqs(dev, dvb)) != 0) {
 		err("IRQ mapping failed: error %d", ret);
@@ -325,6 +339,7 @@ static int stbx25xx_adapter_remove(struct of_device *dev)
 	stbx25xx_demux_exit(dvb);
 	stbx25xx_audio_exit(dvb);
 	stbx25xx_video_exit(dvb);
+	stbx25xx_procfs_exit();
 	
 	kfree(dvb);
 	

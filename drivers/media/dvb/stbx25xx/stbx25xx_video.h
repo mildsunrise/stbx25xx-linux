@@ -17,8 +17,9 @@
 #define STBx25xx_VIDEO_IRQ_COUNT	32
 
 /* Misc */
-#define VBI_LINES	16	/* VBI uses up to 16 video lines */
-#define CLIP_COUNT	2	/* Clip mode uses two buffers working in ping-pong mode */
+#define VIDEO_CMD_TIMEOUT_MS	100
+#define VBI_LINES		16	/* VBI uses up to 16 video lines */
+#define CLIP_COUNT		2	/* Clip mode uses two buffers working in ping-pong mode */
 #define STBx25xx_VIDEO_CAPS	(VIDEO_CAP_MPEG1 | VIDEO_CAP_MPEG2)
 
 /* Memory map - physical addresses of memory areas used by video decoder */

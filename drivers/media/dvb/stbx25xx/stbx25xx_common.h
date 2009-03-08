@@ -152,6 +152,8 @@ struct stbx25xx_dvb_data {
 	struct stbx25xx_demux_data	demux;
 };
 
+extern struct proc_dir_entry *stbx25xx_proc_dir;
+
 /* Function prototypes */
 extern int stbx25xx_demux_connect_frontend(struct dmx_demux* demux,
 				 struct dmx_frontend* frontend);

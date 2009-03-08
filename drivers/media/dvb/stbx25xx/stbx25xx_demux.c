@@ -2700,11 +2700,9 @@ int stbx25xx_demux_stop_feed(struct dvb_demux_feed *feed)
 	procfs entry
 **/
 
-#define DEMUX_PROC_NAME		"stbdemux"
-#define DEMUX_PROC_IRQS_NAME	"interrupts"
-#define DEMUX_PROC_QUEUES_NAME	"queues"
+#define DEMUX_PROC_IRQS_NAME	"demux_interrupts"
+#define DEMUX_PROC_QUEUES_NAME	"demux_queues"
 
-static struct proc_dir_entry *demux_proc_dir;
 static struct proc_dir_entry *demux_proc_irqs;
 static struct proc_dir_entry *demux_proc_queues;
 
@@ -2864,16 +2862,14 @@ static const struct file_operations proc_demux_iops = {
 
 static void demux_init_procfs(void)
 {
-	demux_proc_dir = proc_mkdir(DEMUX_PROC_NAME, NULL);
-	demux_proc_irqs = proc_create(DEMUX_PROC_IRQS_NAME, 0, demux_proc_dir, &proc_demux_iops);
-	demux_proc_queues = proc_create(DEMUX_PROC_QUEUES_NAME, 0, demux_proc_dir, &proc_demux_qops);
+	demux_proc_irqs = proc_create(DEMUX_PROC_IRQS_NAME, 0, stbx25xx_proc_dir, &proc_demux_iops);
+	demux_proc_queues = proc_create(DEMUX_PROC_QUEUES_NAME, 0, stbx25xx_proc_dir, &proc_demux_qops);
 }
 
 static void demux_deinit_procfs(void)
 {
-	remove_proc_entry(DEMUX_PROC_QUEUES_NAME, demux_proc_dir);
-	remove_proc_entry(DEMUX_PROC_IRQS_NAME, demux_proc_dir);
-	remove_proc_entry(DEMUX_PROC_NAME, NULL);
+	remove_proc_entry(DEMUX_PROC_QUEUES_NAME, stbx25xx_proc_dir);
+	remove_proc_entry(DEMUX_PROC_IRQS_NAME, stbx25xx_proc_dir);
 }
 
 /*
