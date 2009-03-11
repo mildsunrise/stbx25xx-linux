@@ -55,7 +55,7 @@ static stbx25xx_video_val def_osd_mode = {
 struct stbx25xx_video_cmd {
 	u8 cmd;
 	u8 cnt;
-	u16 *par;
+	u32 *par;
 };
 
 /**
@@ -212,7 +212,7 @@ static int video_issue_cmds(struct stbx25xx_video_cmd *cmds, u8 count)
 
 static int video_update_hw_config(void)
 {
-	u16 p0 = 0;
+	u32 p0 = 0;
 	struct stbx25xx_video_cmd cmd = {
 		.cmd = CMD_CFG,	.cnt = 1, .par = &p0,
 	};
@@ -327,7 +327,7 @@ static int video_fastforward(struct stbx25xx_video_data *vid, int n)
 
 static int video_frame_switch(int mode)
 {
-	u16 p0 = mode;
+	u32 p0 = mode;
 	struct stbx25xx_video_cmd cmd = { .cmd = CMD_FRM_SW, .cnt = 1, .par = &p0 };
 	
 	return video_issue_cmd(&cmd);
@@ -350,7 +350,7 @@ static void video_vfb_clear(struct stbx25xx_video_data *vid)
 
 static int video_vrb_reset(int mode)
 {
-	u16 p0 = mode;
+	u32 p0 = mode;
 	struct stbx25xx_video_cmd cmd = { .cmd = CMD_RB_RST, .cnt = 1, .par = &p0 };
 	
 	return video_issue_cmd(&cmd);
@@ -631,8 +631,8 @@ static int video_set_source(struct stbx25xx_video_data *vid, video_stream_source
 
 static int video_resume(struct stbx25xx_video_data *vid)
 {
-	u16 p0 = 0;
-	struct stbx25xx_video_cmd cmd = { .cmd = CMD_PLAY, };
+	u32 p0 = 0;
+	struct stbx25xx_video_cmd resume = { .cmd = CMD_PLAY, .cnt = 0, .par = NULL };
 	struct stbx25xx_video_cmd exit_still[2] = {
 		{ .cmd = CMD_RB_RST | CMD_CHAIN, .cnt = 1, .par = &p0 },
 		{ .cmd = CMD_FREEZE, },
@@ -646,9 +646,11 @@ static int video_resume(struct stbx25xx_video_data *vid)
 			video_start_decoding();
 		}
 		vid->still_mode = 0;
+		video_issue_cmd(&resume);
+	} else {
+		video_vrb_reset(0x8000);
 	}
 	
-	video_issue_cmd(&cmd);
 	vid->state.play_state = VIDEO_PLAYING;
 	
 	return 0;
@@ -656,7 +658,7 @@ static int video_resume(struct stbx25xx_video_data *vid)
 
 static int video_stillpicture(struct stbx25xx_video_data *vid, struct video_still_picture *pic)
 {
-	u16 p0 = 0;
+	u32 p0 = 0;
 	struct stbx25xx_video_cmd cmd = { .cmd = CMD_STILL, .cnt = 0, .par = &p0 };
 	u8 *clip_data;
 	
@@ -1125,7 +1127,6 @@ int stbx25xx_video_open(struct inode *inode, struct file *file)
 	
 	video_vfb_clear(vid);
 	
-	/*
 	video_start_decoding();
 	
 	err = video_frame_switch(1);
@@ -1137,7 +1138,6 @@ int stbx25xx_video_open(struct inode *inode, struct file *file)
 		warn("frame switch error");
 		
 	video_stop_decoding();
-	*/
 	
 	video_show();
 
@@ -1172,7 +1172,7 @@ int stbx25xx_video_release(struct inode *inode, struct file *file)
 		video_hide();
 		video_stop_decoding();
 		vid->state.play_state = VIDEO_STOPPED;
-		video_set_source(vid, VIDEO_SOURCE_DEMUX);
+		video_set_source(vid, VIDEO_SOURCE_MEMORY);
 		video_vrb_reset(0);
 		video_stop_proc();
 	}
@@ -1398,6 +1398,7 @@ int stbx25xx_video_init(struct stbx25xx_dvb_data *dvb)
 #endif
 
 	video_init_procfs();
+	video_set_source(vid, VIDEO_SOURCE_MEMORY);
 	
 	return 0;
 
@@ -1413,7 +1414,7 @@ void stbx25xx_video_exit(struct stbx25xx_dvb_data *dvb)
 {
 	struct stbx25xx_video_data *vid = &dvb->video;
 
-	video_init_procfs();
+	video_deinit_procfs();
 
 #if defined(CONFIG_FB) || defined(CONFIG_FB_MODULE)
 	stbx25xx_osd_exit(dvb);
