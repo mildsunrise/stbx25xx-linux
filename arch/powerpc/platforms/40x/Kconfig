@@ -91,6 +91,30 @@ config TM9101
 	help
 	  This option enables support for the Technomate TM9101 STB.
 	  
+config IP200
+	bool "AB IPBox 200"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the AB IPBox 200.
+
+config IP250
+	bool "AB IPBox 250"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the AB IPBox 250.
+
+config IP350
+	bool "AB IPBox 350"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the AB IPBox 350.
+
 config LX411S
 	bool "Vantage LX411S STB"
 	depends on 40x
