@@ -47,10 +47,17 @@ typedef struct bd_info {
 } bd_t;
 #endif				/* !__ASSEMBLY__ */
 
-#define DM9000_MEM_ADDR		0xf2000000
-#define DM9000_MEM_DATA		0xf2000004
-#define DM9000_BUS_WIDTH	2
-#define DM9000_IRQ		26
+//#define DM9000_MEM_ADDR		0xf2000000
+//#define DM9000_MEM_DATA		0xf2000004
+//#define DM9000_BUS_WIDTH	2
+//#define DM9000_IRQ		26
+
+/* network device */
+#define DM9000_MEM_ADDR   0xfee00000
+#define DM9000_MEM_DATA	  0xfee00004
+#define DM9000_MEM_SIZE	  0x00001000
+#define DM9000_BUS_WIDTH  2
+#define DM9000_IRQ        29
 
 #ifdef MAX_HWIFS
 #undef MAX_HWIFS

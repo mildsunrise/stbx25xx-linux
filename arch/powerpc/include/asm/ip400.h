@@ -1,8 +1,8 @@
 /*
- * arch/powerpc/include/asm/ip200.h
+ * arch/powerpc/include/asm/ip400.h
  * 
  * Macros, definitions, and data structures specific to the IBM PowerPC
- * STBx25xx "AB IPBox 200" board.
+ * STBx25xx "AB IPBox 400" board.
  *
  * Author: (C) Robert Burger <robert_burger@web.de>
  *
@@ -12,8 +12,8 @@
  */
 
 #ifdef __KERNEL__
-#ifndef __ASM_IP200_H__
-#define __ASM_IP200_H__
+#ifndef __ASM_IP400_H__
+#define __ASM_IP400_H__
 
 #ifndef __ASSEMBLY__
 typedef struct bd_info {
@@ -61,19 +61,19 @@ typedef struct bd_info {
 
 #define UARTCLK           (378000000 / 18)
 
-#define PPC4xx_MACHINE_NAME "ip200"
+#define PPC4xx_MACHINE_NAME	"ip400"
 
 /* GPIO */
 #define PPC4xx_GPIO_BASE     224
-#define IP200_GPIO_FAN_CTRL  226
-#define IP200_GPIO_FE_RST_N  228
-#define IP200_GPIO_FE_18V    229
-#define IP200_GPIO_FE_LNB    231
-#define IP200_GPIO_LED_RED   233
-#define IP200_GPIO_RESET     247
-#define IP200_GPIO_CIMAX_RST 252
-#define IP200_GPIO_UNKNOWN   253
-#define IP200_GPIO_ETH_RST_N 255
+#define IP400_GPIO_FAN_CTRL  226
+#define IP400_GPIO_FE_RST_N  228
+#define IP400_GPIO_FE_18V    229
+#define IP400_GPIO_FE_LNB    231
+#define IP400_GPIO_LED_RED   233
+#define IP400_GPIO_RESET     247
+#define IP400_GPIO_CIMAX_RST 252
+#define IP400_GPIO_UNKNOWN   253
+#define IP400_GPIO_ETH_RST_N 255
 
-#endif        /* __ASM_IP200_H__ */
-#endif        /* __KERNEL__ */
+#endif				/* __ASM_IP400_H__ */
+#endif				/* __KERNEL__ */
