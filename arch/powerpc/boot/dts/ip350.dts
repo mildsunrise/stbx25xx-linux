@@ -1,0 +1,147 @@
+/*
+ * Device Tree Source for AB IPBox 350
+ *
+ * Copyright 2009 robert-wm
+ *
+ *
+ * This file is licensed under the terms of the GNU General Public
+ * License version 2.  This program is licensed "as is" without
+ * any warranty of any kind, whether express or implied.
+ */
+
+/dts-v1/;
+
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+	platform = "IBM STBx25xx";
+	model = "AB IPBox 350";
+	compatible = "ibm,stbx25xx", "ab,ip350";
+	dcr-parent = <&{/cpus/cpu@0}>;
+
+	aliases {
+		serial0 = &UART0;
+		serial1 = &UART1;
+		serial2 = &UART2;
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu@0 {
+			device_type = "cpu";
+			model = "PowerPC,STBx25xx";
+			reg = <0x00000000>;
+			clock-frequency = <252000000>; /* Filled in by zImage */
+			timebase-frequency = <27000000>; /* Filled in by zImage */
+			i-cache-line-size = <32>;
+			d-cache-line-size = <32>;
+			i-cache-size = <16384>;
+			d-cache-size = <16384>;
+			dcr-controller;
+			dcr-access-method = "native";
+		};
+	};
+
+	memory {
+		device_type = "memory";
+		reg = <0x00000000 0x01e00000>; /* 30 MB */
+	};
+
+	UIC0: interrupt-controller {
+		compatible = "ibm,uic";
+		interrupt-controller;
+		cell-index = <0>;
+		dcr-reg = <0x040 0x009>;
+		#address-cells = <0>;
+		#size-cells = <0>;
+		#interrupt-cells = <2>;
+	};
+
+	plb {
+		compatible = "ibm,plb3";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+		clock-frequency = <63000000>; /* Filled in by zImage */
+
+		POB0: opb {
+			compatible = "ibm,opb-stbx25xx", "ibm,opb";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0x40000000 0x40000000 0x00100000>;
+			dcr-reg = <0x054 0x013 0x0b0 0x003>;
+			clock-frequency = <63000000>; /* Filled in by zImage */
+
+			UART0: serial@40040000 {
+				device_type = "serial";
+				compatible = "ns16550";
+				reg = <0x40040000 0x00000008>;
+				clock-frequency = <21000000>; /* Filled in by zImage */
+				interrupt-parent = <&UIC0>;
+				interrupts = <20 4>;
+			};
+
+			UART1: serial@40000000 {
+				device_type = "serial";
+				compatible = "ns16550";
+				reg = <0x40000000 0x00000008>;
+				clock-frequency = <21000000>; /* Filled in by zImage */
+				interrupt-parent = <&UIC0>;
+				interrupts = <21 4>;
+			};
+			
+			UART2: serial@40010000 {
+				device_type = "serial";
+				compatible = "ns16550";
+				reg = <0x40010000 0x00000008>;
+				clock-frequency = <21000000>; /* Filled in by zImage */
+				current-speed = <115200>;
+				interrupt-parent = <&UIC0>;
+				interrupts = <22 4>;
+			};
+
+			IIC: i2c@40030000 {
+				compatible = "ibm,iic-stbx25xx";
+				reg = <0x40030000 0x00000010>;
+				interrupt-parent = <&UIC0>;
+				interrupts = <9 4>;
+			};
+
+			GPIO: gpio@40060000 {
+				compatible = "ibm,ppc4xx-gpio";
+				reg = <0x40060000 0x00000020>;
+			};
+			
+			dvb@0 {
+				compatible = "ibm,stbx25xx-dvb";
+				interrupt-parent = <&UIC0>;
+				interrupts = <1 4 2 4 3 4 23 4>;
+			};
+
+		};
+
+		EBC0: ebc {
+			compatible = "ibm,ebc-stbx25xx", "ibm,ebc";
+			dcr-reg = <0x070 0x02b>;
+			#address-cells = <2>;
+			#size-cells = <1>;
+			/* The ranges property is supplied by the bootwrapper
+			 * and is based on the firmware's configuration of the
+			 * EBC bridge
+			 */
+			clock-frequency = <63000000>; /* Filled in by zImage */
+
+			dm9000@0,fee00000 {
+				compatible = "davicom,dm9000";
+				interrupt-parent = <&UIC0>;
+				interrupts = <29 8>;
+			};
+		};
+	};
+
+	chosen {
+		linux,stdout-path = "/plb/opb/serial@40040000";
+	};
+};
