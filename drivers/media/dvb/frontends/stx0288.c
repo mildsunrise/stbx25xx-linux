@@ -615,21 +615,31 @@ static inline void stx0288_set_noe(struct stx0288_state *state, int noe)
 	stx0288_writeregI(state, R288_ERRCTRL, (stx0288_readreg(state, R288_ERRCTRL) & 0xfb) | noe);
 }
 
-static int stx0288_set_frontend(struct dvb_frontend *fe,
-					struct dvb_frontend_parameters *dfp)
+static int stx0288_get_frontend_algo(struct dvb_frontend* fe)
+{
+	return 1;
+}
+
+static int stx0288_tune(struct dvb_frontend* fe,
+		    struct dvb_frontend_parameters* c,
+		    unsigned int mode_flags,
+		    unsigned int *delay,
+		    fe_status_t *status)
 {
 	struct stx0288_state *state = fe->demodulator_priv;
-	struct dtv_frontend_properties *c = &fe->dtv_property_cache;
 	int timeout;
 	s16 timing;
 	u32 fmin, fmax;
 
 	dprintk("%s : FE_SET_FRONTEND\n", __func__);
+	
+	if(c == NULL)
+		goto get_status;
 
-	if (c->delivery_system != SYS_DVBS) {
+	if (fe->dtv_property_cache.delivery_system != SYS_DVBS) {
 			dprintk("%s: unsupported delivery "
 				"system selected (%d)\n",
-				__func__, c->delivery_system);
+				__func__, fe->dtv_property_cache.delivery_system);
 			return -EOPNOTSUPP;
 	}
 
@@ -637,10 +647,8 @@ static int stx0288_set_frontend(struct dvb_frontend *fe,
 		state->config->set_ts_params(fe, 0);
 
 	/* only frequency & symbol_rate are used for tuner*/
-	dfp->frequency = c->frequency;
-	dfp->u.qpsk.symbol_rate = c->symbol_rate;
 	if (fe->ops.tuner_ops.set_params) {
-		fe->ops.tuner_ops.set_params(fe, dfp);
+		fe->ops.tuner_ops.set_params(fe, c);
 		if (fe->ops.i2c_gate_ctrl)
 			fe->ops.i2c_gate_ctrl(fe, 0);
 	}
@@ -682,11 +690,11 @@ static int stx0288_set_frontend(struct dvb_frontend *fe,
 		...
 	*/
 	
-	if(c->symbol_rate >= 15000000)
+	if(c->u.qpsk.symbol_rate >= 15000000)
 		stx0288_set_noe(state, 3);
-	else if(c->symbol_rate >= 8000)
+	else if(c->u.qpsk.symbol_rate >= 8000)
 		stx0288_set_noe(state, 2);
-	else if(c->symbol_rate >= 3000)
+	else if(c->u.qpsk.symbol_rate >= 3000)
 		stx0288_set_noe(state, 1);
 	else
 		stx0288_set_noe(state, 0);
@@ -697,13 +705,13 @@ static int stx0288_set_frontend(struct dvb_frontend *fe,
 	stx0288_writeregI(state, R288_ACCU1VAL, 0);
 	stx0288_writeregI(state, R288_ACCU2VAL, (u8)-1);
 
-	fmin = ((((u32)(c->symbol_rate/(u32)1000))*((95*32768)/100))/(u32)(stx0288_get_mclk(state)/(u32)1000));   /* 2^15=32768*/
-	fmax = ((((u32)(c->symbol_rate/1000))*((105*32768)/100))/(u32)(stx0288_get_mclk(state)/1000));
+	fmin = ((((u32)(c->u.qpsk.symbol_rate/(u32)1000))*((95*32768)/100))/(u32)(stx0288_get_mclk(state)/(u32)1000));   /* 2^15=32768*/
+	fmax = ((((u32)(c->u.qpsk.symbol_rate/1000))*((105*32768)/100))/(u32)(stx0288_get_mclk(state)/1000));
 	stx0288_writeregI(state, R288_FMINM, MSB(fmin) | 0x80);
 	stx0288_writeregI(state, R288_FMINL, LSB(fmin));
 	stx0288_writeregI(state, R288_FMAXM, MSB(fmax) | 0x80);
 	stx0288_writeregI(state, R288_FMAXL, LSB(fmax));
-	stx0288_writeregI(state, R288_FINEINC, c->symbol_rate/1000000);
+	stx0288_writeregI(state, R288_FINEINC, c->u.qpsk.symbol_rate/1000000);
 	stx0288_set_fine(state, 1);
 	
 	timeout = 100;
@@ -714,23 +722,28 @@ static int stx0288_set_frontend(struct dvb_frontend *fe,
 	}
 	
 	stx0288_set_fine(state, 0);
-	stx0288_set_derot_freq(state, c->symbol_rate / 10);
+	stx0288_set_derot_freq(state, c->u.qpsk.symbol_rate / 10);
 	
-	if(c->symbol_rate < 5000)
+	if(c->u.qpsk.symbol_rate < 5000)
 		stx0288_set_alpha_beta(state, 8, 17);
-	else if(c->symbol_rate < 35000)
+	else if(c->u.qpsk.symbol_rate < 35000)
 		stx0288_set_alpha_beta(state, 7, 28);
 	else
 		stx0288_set_alpha_beta(state, 8, 36);
 	
-	stx0288_set_symbolrate(fe, c->symbol_rate);
-	stx0288_set_FEC(state, c->fec_inner);
+	stx0288_set_symbolrate(fe, c->u.qpsk.symbol_rate);
+	stx0288_set_FEC(state, c->u.qpsk.fec_inner);
 	
 	stx0288_set_frequency_offset_detector(state, 1);
 
 	state->tuner_frequency = c->frequency;
 	state->fec_inner = FEC_AUTO;
-	state->symbol_rate = c->symbol_rate;
+	state->symbol_rate = c->u.qpsk.symbol_rate;
+	
+get_status:
+	if (!(mode_flags & FE_TUNE_MODE_ONESHOT))
+		stx0288_read_status(fe, status);
+	*delay = HZ/10;
 
 	return 0;
 }
@@ -799,7 +812,8 @@ static struct dvb_frontend_ops stx0288_ops = {
 
 	.set_property = stx0288_set_property,
 	.get_property = stx0288_get_property,
-	.set_frontend = stx0288_set_frontend,
+	.tune = stx0288_tune,
+	.get_frontend_algo = stx0288_get_frontend_algo,
 };
 
 struct dvb_frontend *stx0288_attach(const struct stx0288_config *config,
