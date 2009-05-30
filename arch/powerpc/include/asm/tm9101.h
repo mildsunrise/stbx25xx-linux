@@ -79,10 +79,14 @@ typedef struct bd_info {
 
 extern int _board_is_tm9101;
 
+#ifdef CONFIG_TM9101
 static inline int board_is_tm9101(void)
 {
 	return _board_is_tm9101;
 }
+#else
+#define board_is_tm9101()	(0)
+#endif
 
 #endif				/* __ASM_TM9100_H__ */
 #endif				/* __KERNEL__ */
