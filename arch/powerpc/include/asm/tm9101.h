@@ -77,5 +77,12 @@ typedef struct bd_info {
 #define TM9101_GPIO_UNKNOWN	253
 #define TM9101_GPIO_ETH_RST_N	255
 
+extern int _board_is_tm9101;
+
+static inline int board_is_tm9101(void)
+{
+	return _board_is_tm9101;
+}
+
 #endif				/* __ASM_TM9100_H__ */
 #endif				/* __KERNEL__ */

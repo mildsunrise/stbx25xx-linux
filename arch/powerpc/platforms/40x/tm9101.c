@@ -29,6 +29,9 @@
 #include <asm/tm9101.h>
 #include <linux/dm9000.h>
 
+int _board_is_tm9101 = 0;
+EXPORT_SYMBOL(_board_is_tm9101);
+
 static __initdata struct of_device_id tm9101_of_bus[] = {
 	{ .compatible = "ibm,plb3", },
 	{ .compatible = "ibm,opb", },
@@ -147,6 +150,8 @@ static int __init tm9101_probe(void)
 
 	if (!of_flat_dt_is_compatible(root, "technomate,tm9101"))
 		return 0;
+	
+	_board_is_tm9101 = 1;
 
 	return 1;
 }

@@ -20,6 +20,7 @@
 
 #include <linux/gpio.h>
 #include <linux/of_platform.h>
+#include <asm/tm9101.h>
 #include "stbx25xx.h"
 
 
@@ -244,12 +245,12 @@ static int stbx25xx_dvb_map_irqs(struct of_device *ofdev, struct stbx25xx_dvb_da
 #define STBx25xx_PROC_NAME	"stbx25xx"
 struct proc_dir_entry *stbx25xx_proc_dir;
 
-static void stbx25xx_procfs_init()
+static void stbx25xx_procfs_init(void)
 {
 	stbx25xx_proc_dir = proc_mkdir(STBx25xx_PROC_NAME, NULL);
 }
 
-static void stbx25xx_procfs_exit()
+static void stbx25xx_procfs_exit(void)
 {
 	remove_proc_entry(STBx25xx_PROC_NAME, NULL);
 }
@@ -260,6 +261,11 @@ static int stbx25xx_adapter_probe(struct of_device *dev, const struct of_device_
  	struct stbx25xx_dvb_data *dvb;
 	
 	printk(KERN_INFO "--- STBx25xx Digital Video Broadcasting drivers ---\n");
+
+	if (board_is_tm9101()) {
+		request_module("ix2476");
+		request_module("stx0288");
+	}
 	
 	dvb = kmalloc(sizeof(struct stbx25xx_dvb_data), GFP_KERNEL);
 	if(dvb == NULL)
