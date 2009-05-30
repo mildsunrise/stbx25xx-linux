@@ -823,7 +823,7 @@ struct dvb_frontend *stx0288_attach(const struct stx0288_config *config,
 	int id;
 
 	/* allocate memory for the internal state */
-	state = kmalloc(sizeof(struct stx0288_state), GFP_KERNEL);
+	state = kzalloc(sizeof(struct stx0288_state), GFP_KERNEL);
 	if (state == NULL)
 		goto error;
 
