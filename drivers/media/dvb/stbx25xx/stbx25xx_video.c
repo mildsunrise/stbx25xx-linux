@@ -540,6 +540,8 @@ static int video_clip_queue(struct stbx25xx_video_data *vid, const char *buf, si
 	size_t size, sent;
 	stbx25xx_video_val reg;
 	
+	BUG_ON(in_irq());
+	
 	if(vid->state.stream_source != VIDEO_SOURCE_MEMORY)
 		return -EINVAL;
 	
@@ -555,7 +557,7 @@ static int video_clip_queue(struct stbx25xx_video_data *vid, const char *buf, si
 		}
 		
 		reg.raw = 0;
-		if(vid->clip_size[vid->clip_wptr] > count) {
+		if(vid->clip_size[vid->clip_wptr] >= count) {
 			reg.clip_len.eos = 1;
 			size = count;
 		} else {
@@ -717,6 +719,9 @@ static int video_stop(struct stbx25xx_video_data *vid)
 {
 //	video_disable_sync();
 	video_stop_decoding();
+	
+	video_vrb_reset(0x8000);
+	video_vfb_clear(vid);
 	
 	vid->state.play_state = VIDEO_STOPPED;
 	
@@ -1061,6 +1066,7 @@ static int video_get_event(struct stbx25xx_video_data *vid, struct video_event *
 ssize_t stbx25xx_video_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 {
 	struct dvb_device *dvbdev;
+	struct stbx25xx_dvb_data *dvb;
 	struct stbx25xx_video_data *vid;
 	
 	if(file == NULL)
@@ -1071,10 +1077,12 @@ ssize_t stbx25xx_video_write(struct file *file, const char *buf, size_t count, l
 	if(dvbdev == NULL)
 		return -EINVAL;
 	
-	vid = dvbdev->priv;
+	dvb = dvbdev->priv;
 	
-	if(vid == NULL)
+	if(dvb == NULL)
 		return -EINVAL;
+	
+	vid = &dvb->video;
 	
 	if (((file->f_flags & O_ACCMODE) == O_RDONLY) ||
 		(vid->state.stream_source != VIDEO_SOURCE_MEMORY))
@@ -1085,8 +1093,9 @@ ssize_t stbx25xx_video_write(struct file *file, const char *buf, size_t count, l
 
 int stbx25xx_video_open(struct inode *inode, struct file *file)
 {
-	int err;
+	int err = 0;
 	struct dvb_device *dvbdev;
+	struct stbx25xx_dvb_data *dvb;
 	struct stbx25xx_video_data *vid;
 	
 	if(file == NULL)
@@ -1097,62 +1106,72 @@ int stbx25xx_video_open(struct inode *inode, struct file *file)
 	if(dvbdev == NULL)
 		return -EINVAL;
 	
-	vid = dvbdev->priv;
+	dvb = dvbdev->priv;
 	
-	if(vid == NULL)
+	if(dvb == NULL)
 		return -EINVAL;
+	
+	vid = &dvb->video;
 	
 	if ((err = dvb_generic_open(inode, file)) < 0)
 		return err;
 	
-	video_restart_proc();
-	
-	if(video_update_hw_config()) {
-		dprintk("%s: Failed to reconfigure decoder\n", __func__);
-		return -EREMOTEIO;
-	}
-	
-	if((err = video_set_format(vid, VIDEO_FORMAT_4_3)) != 0) {
-		dprintk("%s: Failed to set video aspect ratio\n", __func__);
-		return err;
-	}
-		
-	video_set_display_format(vid, VIDEO_CENTER_CUT_OUT);
-	video_set_display_border(0, 0);
-	
-	if(video_vrb_reset(0)) {
-		dprintk("%s: Failed to reset rate buffer\n", __func__);
-		return -EREMOTEIO;
-	}
-	
-	video_vfb_clear(vid);
-	
-	video_start_decoding();
-	
-	err = video_frame_switch(1);
-	if(err)
-		warn("frame switch error");
-	
-	err = video_frame_switch(0);
-	if(err)
-		warn("frame switch error");
-		
-	video_stop_decoding();
-	
-	video_show();
-
 	if ((file->f_flags & O_ACCMODE) != O_RDONLY) {
+		video_restart_proc();
+		
+		if(video_update_hw_config()) {
+			dprintk("%s: Failed to reconfigure decoder\n", __func__);
+			err = -EREMOTEIO;
+			goto error;
+		}
+		
+		if((err = video_set_format(vid, VIDEO_FORMAT_4_3)) != 0) {
+			dprintk("%s: Failed to set video aspect ratio\n", __func__);
+			goto error;
+		}
+			
+		video_set_display_format(vid, VIDEO_CENTER_CUT_OUT);
+		video_set_display_border(0, 0);
+		
+		if(video_vrb_reset(0)) {
+			dprintk("%s: Failed to reset rate buffer\n", __func__);
+			err = -EREMOTEIO;
+			goto error;
+		}
+		
+		video_vfb_clear(vid);
+		
+		video_start_decoding();
+		
+		err = video_frame_switch(1);
+		if(err)
+			warn("frame switch error");
+		
+		err = video_frame_switch(0);
+		if(err)
+			warn("frame switch error");
+			
+		video_stop_decoding();
+		
+		video_show();
+
 		/* empty event queue */
 		vid->events.eventr = 0;
 		vid->events.eventw = 0;
 	}
-
+	
 	return 0;
+	
+error:
+	dvb_generic_release(inode, file);
+	
+	return err;
 }
 
 int stbx25xx_video_release(struct inode *inode, struct file *file)
 {
 	struct dvb_device *dvbdev;
+	struct stbx25xx_dvb_data *dvb;
 	struct stbx25xx_video_data *vid;
 	
 	if(file == NULL)
@@ -1163,17 +1182,19 @@ int stbx25xx_video_release(struct inode *inode, struct file *file)
 	if(dvbdev == NULL)
 		return -EINVAL;
 	
-	vid = dvbdev->priv;
+	dvb = dvbdev->priv;
 	
-	if(vid == NULL)
+	if(dvb == NULL)
 		return -EINVAL;
+	
+	vid = &dvb->video;
 	
 	if ((file->f_flags & O_ACCMODE) != O_RDONLY) {
 		video_hide();
 		video_stop_decoding();
 		vid->state.play_state = VIDEO_STOPPED;
 		video_set_source(vid, VIDEO_SOURCE_MEMORY);
-		video_vrb_reset(0);
+//		video_vrb_reset(0);
 		video_stop_proc();
 	}
 
@@ -1184,6 +1205,7 @@ unsigned int stbx25xx_video_poll(struct file *file, poll_table *wait)
 {
 	unsigned int mask = 0;
 	struct dvb_device *dvbdev;
+	struct stbx25xx_dvb_data *dvb;
 	struct stbx25xx_video_data *vid;
 	
 	if(file == NULL)
@@ -1194,10 +1216,12 @@ unsigned int stbx25xx_video_poll(struct file *file, poll_table *wait)
 	if(dvbdev == NULL)
 		return -EINVAL;
 	
-	vid = dvbdev->priv;
+	dvb = dvbdev->priv;
 	
-	if(vid == NULL)
+	if(dvb == NULL)
 		return -EINVAL;
+	
+	vid = &dvb->video;
 
 	if ((file->f_flags & O_ACCMODE) != O_RDONLY)
 		poll_wait(file, &vid->write_wq, wait);
@@ -1223,6 +1247,7 @@ int stbx25xx_video_ioctl(struct inode *inode, struct file *file, unsigned int cm
 {
 	unsigned long arg = (unsigned long) parg;
 	struct dvb_device *dvbdev;
+	struct stbx25xx_dvb_data *dvb;
 	struct stbx25xx_video_data *vid;
 	
 	if(file == NULL)
@@ -1233,10 +1258,12 @@ int stbx25xx_video_ioctl(struct inode *inode, struct file *file, unsigned int cm
 	if(dvbdev == NULL)
 		return -EINVAL;
 	
-	vid = dvbdev->priv;
+	dvb = dvbdev->priv;
 	
-	if(vid == NULL)
+	if(dvb == NULL)
 		return -EINVAL;
+	
+	vid = &dvb->video;
 
 	if (((file->f_flags & O_ACCMODE) == O_RDONLY) &&
 		(cmd != VIDEO_GET_STATUS) &&
