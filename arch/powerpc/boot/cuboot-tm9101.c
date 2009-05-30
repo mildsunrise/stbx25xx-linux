@@ -10,6 +10,8 @@
  * by the Free Software Foundation.
  */
 
+#define __PPCBOOT_H__
+
 #include "ops.h"
 #include "io.h"
 #include "dcr.h"
