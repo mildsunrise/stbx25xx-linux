@@ -20,6 +20,7 @@
  */
 
 #include "stbx25xx.h"
+#include "stbx25xx_audio.h"
 
 /**
 	Exported API calls
