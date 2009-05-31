@@ -1,7 +1,7 @@
 /*
  * This file is part of linux driver the digital TV devices equipped with IBM STBx25xx SoC
  *
- * stbx25xx_demux.h - header file for demux hardware.
+ * stbx25xx_demux_val.h - header file for demux hardware.
  *
  * see stbx25xx.c for copyright information.
  */
