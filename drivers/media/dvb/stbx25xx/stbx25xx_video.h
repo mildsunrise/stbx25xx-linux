@@ -44,6 +44,8 @@
 /* Offset within Video memory for calculating addresses in both address spaces */
 #define VFB_OFFSET		0x00000000	/* Start of VIDEO_FB_BASE */
 #define VFB_SIZE		(2*1024*1024)	/* 2 MegaBytes */
+#define PAL_OFFSET		(0x16900)
+#define NTSC_OFFSET		(0x21d00)
 
 /* Dynamically calculated offsets
  * to video framebuffers are stored

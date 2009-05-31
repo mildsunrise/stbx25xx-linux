@@ -66,6 +66,41 @@ typedef void (*video_irq_handler_t)(struct stbx25xx_video_data *vid, int irq);
 static video_irq_handler_t video_int_handlers[STBx25xx_VIDEO_IRQ_COUNT];
 static u32 irq_stats[STBx25xx_VIDEO_IRQ_COUNT];
 
+static char *irq_name[] = {
+	"End of service picture",
+	"Freeze frame status",
+	"Reserved 2",
+	"Reserved 3",
+	"Saved PTS",
+	"STC ready",
+	"Zoom offset overflow",
+	"Automatic channel change complete",
+	"PLB error",
+	"Block read complete",
+	"Reserved 10",
+	"Reserved 11",
+	"Reserved 12",
+	"Reserved 13",
+	"Reserved 14",
+	"Reserved 15",
+	"Sequence start",
+	"Sequence error",
+	"Sequence end",
+	"GOP/SMPTE",
+	"Picture skipped",
+	"Picture start",
+	"Picture resolution changes",
+	"User data",
+	"VBI start",
+	"Video start",
+	"First field video start",
+	"Block move complete",
+	"Time base change",
+	"Video rate buffer threshold",
+	"Video rate buffer overflow",
+	"OSD data",
+};
+
 static irqreturn_t video_interrupt(int irq, void *data)
 {
 	struct stbx25xx_video_data *vid = data;
@@ -83,7 +118,7 @@ static irqreturn_t video_interrupt(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-static void video_install_int_handler(int irq, video_irq_handler_t handler)
+static void video_install_int_handler(unsigned int irq, video_irq_handler_t handler)
 {
 	unsigned long flags;
 	
@@ -210,12 +245,17 @@ static int video_issue_cmds(struct stbx25xx_video_cmd *cmds, u8 count)
 	return 0;
 }
 
-static int video_update_hw_config(void)
+static int video_update_hw_config(struct stbx25xx_video_data *vid)
 {
 	u32 p0 = 0;
 	struct stbx25xx_video_cmd cmd = {
 		.cmd = CMD_CFG,	.cnt = 1, .par = &p0,
 	};
+	
+	if(vid->system == VIDEO_SYSTEM_NTSC)
+		set_video_reg_raw(FB_BASE, (SEG0_ADDR + VFB_OFFSET + NTSC_OFFSET) >> 7);
+	else
+		set_video_reg_raw(FB_BASE, (SEG0_ADDR + VFB_OFFSET + PAL_OFFSET) >> 7);
 	
 	if(video_issue_cmd(&cmd))
 		return -1;
@@ -353,7 +393,22 @@ static int video_vrb_reset(int mode)
 	u32 p0 = mode;
 	struct stbx25xx_video_cmd cmd = { .cmd = CMD_RB_RST, .cnt = 1, .par = &p0 };
 	
+	video_soft_reset();
+	
 	return video_issue_cmd(&cmd);
+}
+
+static int video_vrb_reset_freeze(int mode)
+{
+	u32 p0 = mode;
+	struct stbx25xx_video_cmd cmds[2] = { 
+		{.cmd = CMD_RB_RST | CMD_CHAIN, .cnt = 1, .par = &p0, },
+		{.cmd = CMD_FREEZE, .cnt = 0, },
+	};
+	
+	video_soft_reset();
+	
+	return video_issue_cmds(cmds, 2);
 }
 
 static int video_set_format(struct stbx25xx_video_data *vid, video_format_t fmt)
@@ -370,7 +425,7 @@ static int video_set_format(struct stbx25xx_video_data *vid, video_format_t fmt)
 	reg.disp_mode.mon = (fmt == VIDEO_FORMAT_16_9);
 	set_video_reg(DISP_MODE, reg);
 	
-	if(video_update_hw_config())
+	if(video_update_hw_config(vid))
 		return -EREMOTEIO;
 	
 	vid->state.video_format = fmt;
@@ -397,7 +452,7 @@ static void video_init_mem_pointers(struct stbx25xx_video_data *vid)
 	u32 fb_base;
 
 	if(vid->system != VIDEO_SYSTEM_NTSC) {
-		fb_base = 0x16900; // use 0x16900 for 4MB PAL
+		fb_base = PAL_OFFSET; // use 0x16900 for 4MB PAL
 		
 		vid->vfb_data[BUF2_LUM] = 0x0 + fb_base;
 		vid->vfb_data[BUF2_CHR] = 0x65400 + fb_base;
@@ -412,7 +467,7 @@ static void video_init_mem_pointers(struct stbx25xx_video_data *vid)
 		vid->vfb_size[BUF1_CHR] = 0x32a00;
 		vid->vfb_size[BUF0_CHR] = 0x32a00;
 	} else {
-		fb_base = 0x21D00; // use 0x21D00 for NTSC
+		fb_base = NTSC_OFFSET; // use 0x21D00 for NTSC
 		
 		vid->vfb_data[BUF2_LUM] = 0x0 + fb_base;
 		vid->vfb_data[BUF2_CHR] = 0x54600 + fb_base;
@@ -440,7 +495,7 @@ static int video_set_system(struct stbx25xx_video_data *vid, video_system_t sys)
 	reg.disp_mode.pal = (sys == VIDEO_SYSTEM_PAL);
 	set_video_reg(DISP_MODE, reg);
 	
-	if(video_update_hw_config())
+	if(video_update_hw_config(vid))
 		return -EREMOTEIO;
 	
 	// TODO:
@@ -510,12 +565,45 @@ static void video_disable_sync(void)
 	set_video_reg(VIDEO_CNTL, reg);
 }
 
+static int video_play(struct stbx25xx_video_data *vid)
+{
+	struct stbx25xx_video_cmd cmd = { .cmd = CMD_PLAY, };
+	
+	video_start_decoding();
+//	video_enable_sync(VIDEO_SYNC_VMASTER);
+
+	if(video_issue_cmd(&cmd))
+		return -EREMOTEIO;
+	
+	vid->state.play_state = VIDEO_PLAYING;
+	
+	return 0;
+}
+
+static int video_stop(struct stbx25xx_video_data *vid)
+{
+	struct stbx25xx_video_cmd freeze = { .cmd = CMD_FREEZE, .cnt = 0, .par = NULL };
+	
+	if(video_issue_cmd(&freeze))
+		return -EREMOTEIO;
+	
+//	video_disable_sync();
+	video_stop_decoding();
+	
+	video_vrb_reset(0x8200);
+	video_vfb_clear(vid);
+	
+	vid->state.play_state = VIDEO_STOPPED;
+	
+	return 0;
+}
+
 static void video_get_size(struct stbx25xx_video_data *vid, video_size_t *size)
 {
 
 }
 
-static int video_clip_busy(void)
+static int video_block_valid(void)
 {
 	stbx25xx_video_val reg;
 	
@@ -539,6 +627,7 @@ static int video_clip_queue(struct stbx25xx_video_data *vid, const char *buf, si
 {
 	size_t size, sent;
 	stbx25xx_video_val reg;
+	unsigned long flags;
 	
 	BUG_ON(in_irq());
 	
@@ -550,39 +639,77 @@ static int video_clip_queue(struct stbx25xx_video_data *vid, const char *buf, si
 	while(count) {
 		if(!video_clip_free(vid)) {
 			if(nonblocking) {
+				info("Video clip not free in non-blocking mode - exiting.");
 				return sent ?: -EAGAIN;
+			} else {
+				if(wait_event_killable(vid->clip_avail, video_clip_free(vid)) < 0)
+					return -ERESTARTSYS;
 			}
-		} else {
-			wait_for_completion(&vid->clip_done);
 		}
 		
 		reg.raw = 0;
+#if 0
 		if(vid->clip_size[vid->clip_wptr] >= count) {
 			reg.clip_len.eos = 1;
 			size = count;
 		} else {
 			size = vid->clip_size[vid->clip_wptr];
 		}
+#endif
+		size = vid->clip_size[vid->clip_wptr];
+		size = (size >= count) ? count : size;
 		reg.clip_len.bv = 1;
 		reg.clip_len.vcblq = size;
+	
+#if 0
+		if(video_block_valid()) {
+			if(nonblocking) {
+				info("Video block still queued in non-blocking mode - exiting.");
+				return sent ?: -EAGAIN;
+			} else {
+				memcpy(vid->clip_data[vid->clip_wptr], buf, size);
+				wait_for_completion(&vid->clip_done);
+			}
+		} 
 		
-		memcpy(vid->clip_data[vid->clip_wptr], buf, size);
+		if(nonblocking)
+#endif
+		memcpy(vid->clip_data[vid->clip_wptr], &buf[sent], size);
 		
-		while(video_clip_busy()) {
-			msleep(1);
-		}
-		
+		local_irq_save(flags);
 		vid->clip_busy[vid->clip_wptr] = 1;
-		vid->clip_wptr ^= 1;
+		local_irq_restore(flags);
 		
 		set_video_reg_raw(CLIP_ADDR, vid->clip_phys[vid->clip_wptr]);
 		set_video_reg(CLIP_LEN, reg);
+		
+		vid->clip_wptr ^= 1;
+		
+		if(vid->state.play_state != VIDEO_PLAYING)
+			video_play(vid);
 				
 		count -= size;
 		sent += size;
 	}
 	
 	return sent;
+}
+
+static int video_clip_buffer_empty(struct stbx25xx_video_data *vid)
+{
+	stbx25xx_video_val reg;
+	
+	reg = get_video_reg(CLIP_LEN);
+
+	return !(reg.clip_len.bv || reg.clip_len.sb);
+}
+
+static void video_empty_buffers(struct stbx25xx_video_data *vid)
+{
+	if(vid->state.stream_source == VIDEO_SOURCE_MEMORY) {
+		info("Waiting for clip buffer to get empty...");
+		wait_event_killable(vid->clip_avail, video_clip_buffer_empty(vid));
+	}
 }
 
 static void video_still_interrupt(struct stbx25xx_video_data *vid, int irq)
@@ -592,26 +719,32 @@ static void video_still_interrupt(struct stbx25xx_video_data *vid, int irq)
 
 static void video_clip_interrupt(struct stbx25xx_video_data *vid, int irq)
 {
+	unsigned long flags;
+	
+	local_irq_save(flags);
 	vid->clip_busy[vid->clip_rptr] = 0;
+	local_irq_restore(flags);
+	
 	vid->clip_rptr ^= 1;
-	complete(&vid->clip_done);
+	wake_up(&vid->clip_avail);
 }
 
 static void dummy_int_handler(struct stbx25xx_video_data *vid, int irq)
 {
 	u16 width, height;
 	
-	info("video interrupt %d", irq);
+	info("Video IRQ: %s interrupt", irq_name[irq]);
 	
 	if(irq == VIDEO_PRC) {
 		width = *(u16 *)(&vid->user_data[0x1f4]);
 		height = *(u16 *)(&vid->user_data[0x1f6]);
-		info("video resolution changed: width=0x%04x, height=0x%04x", width, height);
+		info("new width: 0x%04x, new height: 0x%04x", width, height);
 	}
 }
 
 static int video_set_source(struct stbx25xx_video_data *vid, video_stream_source_t src)
 {
+	unsigned long flags;
 	stbx25xx_video_val reg;
 	
 	if(vid->state.play_state != VIDEO_STOPPED)
@@ -621,10 +754,16 @@ static int video_set_source(struct stbx25xx_video_data *vid, video_stream_source
 	reg.video_cntl.vcm = (src == VIDEO_SOURCE_MEMORY);
 	set_video_reg(VIDEO_CNTL, reg);
 	
-	if(src == VIDEO_SOURCE_MEMORY)
-		video_install_int_handler(VIDEO_BRC, video_clip_interrupt);
-	else
-		video_install_int_handler(VIDEO_BRC, dummy_int_handler);
+	if(src == VIDEO_SOURCE_MEMORY) {
+		local_irq_save(flags);
+		vid->clip_busy[0] = 0;
+		vid->clip_busy[1] = 0;
+		local_irq_restore(flags);
+		
+		video_install_int_handler(VIDEO_BRC_IRQ, video_clip_interrupt);
+	} else {
+		video_install_int_handler(VIDEO_BRC_IRQ, dummy_int_handler);
+	}
 	
 	vid->state.stream_source = src;
 	
@@ -689,41 +828,13 @@ static int video_stillpicture(struct stbx25xx_video_data *vid, struct video_stil
 	copy_from_user(clip_data, (void __user *)pic->iFrame, pic->size);
 	memset(&clip_data[pic->size], 0, 128);
 	
-	video_install_int_handler(VIDEO_SEND, video_still_interrupt);
+	video_install_int_handler(VIDEO_SEND_IRQ, video_still_interrupt);
 	
 	video_clip_queue(vid, clip_data, pic->size + 128, 0);
 	wait_for_completion(&vid->still_done);
 	
 	kfree(clip_data);
-	video_remove_int_handler(VIDEO_SEND);
-	
-	return 0;
-}
-
-static int video_play(struct stbx25xx_video_data *vid)
-{
-	struct stbx25xx_video_cmd cmd = { .cmd = CMD_PLAY, };
-	
-	if(video_issue_cmd(&cmd))
-		return -EREMOTEIO;
-	
-	video_start_decoding();
-//	video_enable_sync(VIDEO_SYNC_VMASTER);
-	
-	vid->state.play_state = VIDEO_PLAYING;
-	
-	return 0;
-}
-
-static int video_stop(struct stbx25xx_video_data *vid)
-{
-//	video_disable_sync();
-	video_stop_decoding();
-	
-	video_vrb_reset(0x8000);
-	video_vfb_clear(vid);
-	
-	vid->state.play_state = VIDEO_STOPPED;
+	video_install_int_handler(VIDEO_SEND_IRQ, dummy_int_handler);
 	
 	return 0;
 }
@@ -776,7 +887,11 @@ static int video_init_memory(struct stbx25xx_video_data *vid)
 	set_video_reg_raw(VID0_CPBASE, (SEG2_ADDR + CUR_OFFSET) >> 7);
 	set_video_reg_raw(RATEBUF_BASE, (SEG1_ADDR + RB_OFFSET) >> 7);
 	set_video_reg_raw(RATEBUF_SIZE, RB_SIZE >> 5);
-	set_video_reg_raw(FB_BASE, (SEG0_ADDR + VFB_OFFSET) >> 7);
+	
+	if(vid->system == VIDEO_SYSTEM_NTSC)
+		set_video_reg_raw(FB_BASE, (SEG0_ADDR + VFB_OFFSET + NTSC_OFFSET) >> 7);
+	else
+		set_video_reg_raw(FB_BASE, (SEG0_ADDR + VFB_OFFSET + PAL_OFFSET) >> 7);
 	
 	vid->vfb_memory = ioremap_nocache(VIDEO_FB_BASE, VIDEO_FB_SIZE);
 	if(vid->vfb_memory == NULL) {
@@ -920,7 +1035,7 @@ static int video_show_irqs(struct seq_file *p, void *v)
 	j = irq_stats[i];
 	local_irq_restore(flags);
 	
-	seq_printf(p, "%2d: %d\n", i, j);
+	seq_printf(p, "%2d : %8d : %s\n", i, j, irq_name[i]);
 	
 	return 0;
 }
@@ -1119,9 +1234,10 @@ int stbx25xx_video_open(struct inode *inode, struct file *file)
 	if ((file->f_flags & O_ACCMODE) != O_RDONLY) {
 		video_restart_proc();
 		
-		if(video_update_hw_config()) {
-			dprintk("%s: Failed to reconfigure decoder\n", __func__);
-			err = -EREMOTEIO;
+		video_disable_sync();
+		
+		if((err = video_update_hw_config(vid)) != 0) {
+			dprintk("%s: Failed to reconfigure the decoder\n", __func__);
 			goto error;
 		}
 		
@@ -1129,7 +1245,7 @@ int stbx25xx_video_open(struct inode *inode, struct file *file)
 			dprintk("%s: Failed to set video aspect ratio\n", __func__);
 			goto error;
 		}
-			
+		
 		video_set_display_format(vid, VIDEO_CENTER_CUT_OUT);
 		video_set_display_border(0, 0);
 		
@@ -1138,20 +1254,26 @@ int stbx25xx_video_open(struct inode *inode, struct file *file)
 			err = -EREMOTEIO;
 			goto error;
 		}
-		
+
 		video_vfb_clear(vid);
-		
+
 		video_start_decoding();
-		
+
 		err = video_frame_switch(1);
 		if(err)
 			warn("frame switch error");
-		
+
 		err = video_frame_switch(0);
 		if(err)
 			warn("frame switch error");
-			
+
 		video_stop_decoding();
+		
+		if(video_vrb_reset_freeze(0)) {
+			dprintk("%s: Failed to reset rate buffer\n", __func__);
+			err = -EREMOTEIO;
+			goto error;
+		}
 		
 		video_show();
 
@@ -1190,9 +1312,9 @@ int stbx25xx_video_release(struct inode *inode, struct file *file)
 	vid = &dvb->video;
 	
 	if ((file->f_flags & O_ACCMODE) != O_RDONLY) {
+		video_empty_buffers(vid);
 		video_hide();
-		video_stop_decoding();
-		vid->state.play_state = VIDEO_STOPPED;
+		video_stop(vid);
 		video_set_source(vid, VIDEO_SOURCE_MEMORY);
 //		video_vrb_reset(0);
 		video_stop_proc();
@@ -1383,14 +1505,21 @@ int stbx25xx_video_init(struct stbx25xx_dvb_data *dvb)
 	vid->events.eventr = 0;
 	vid->events.overflow = 0;
 	mutex_init(&vid->osd_mode_mutex);
-	init_completion(&vid->clip_done);
+	init_waitqueue_head(&vid->clip_avail);
 	vid->clip_rptr = 0;
 	vid->clip_wptr = 0;
 	init_completion(&vid->still_done);
 	vid->still_mode = 0;
+#ifndef CONFIG_STBx25xx_NTSC
+	vid->system = VIDEO_SYSTEM_PAL;
+#else
+	vid->system = VIDEO_SYSTEM_NTSC;
+#endif
 	
 	memset(irq_stats, 0, sizeof(u32) * STBx25xx_VIDEO_IRQ_COUNT);
-	video_int_mask = VIDEO_BRC | VIDEO_ACCC | VIDEO_SERR | VIDEO_PRC;
+	video_int_mask = VIDEO_BRC | VIDEO_ACCC | VIDEO_SERR | VIDEO_PRC |
+			VIDEO_PLBME | VIDEO_PSKIP | VIDEO_BMC | VIDEO_TBC |
+			VIDEO_VRBO;
 	
 	for(i = 0; i < STBx25xx_VIDEO_IRQ_COUNT; i++)
 		video_install_int_handler(i, dummy_int_handler);
@@ -1411,12 +1540,6 @@ int stbx25xx_video_init(struct stbx25xx_dvb_data *dvb)
 		err("firmware initialization failed.");
 		goto err_fw;
 	}
-	
-#ifndef CONFIG_STBx25xx_NTSC
-	vid->system = VIDEO_SYSTEM_PAL;
-#else
-	vid->system = VIDEO_SYSTEM_NTSC;
-#endif
 
 	video_init_mem_pointers(vid);
 		
@@ -1426,6 +1549,11 @@ int stbx25xx_video_init(struct stbx25xx_dvb_data *dvb)
 
 	video_init_procfs();
 	video_set_source(vid, VIDEO_SOURCE_MEMORY);
+	
+	video_restart_proc();
+	video_update_hw_config(vid);
+	video_stop(vid);
+	video_stop_proc();
 	
 	return 0;
 

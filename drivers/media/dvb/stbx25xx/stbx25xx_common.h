@@ -13,6 +13,7 @@
 #define DRIVER_AUTHOR "Tomasz Figa <tomasz.figa@gmail.com>"
 
 #include <linux/list.h>
+#include <linux/wait.h>
 #include <linux/dvb/video.h>
 #include <linux/dvb/audio.h>
 #include "dmxdev.h"
@@ -76,7 +77,7 @@ struct stbx25xx_video_data {
 	volatile u8 clip_busy[2];
 	u8 clip_rptr;
 	u8 clip_wptr;
-	struct completion clip_done;
+	wait_queue_head_t clip_avail;
 	
 	/* Still image */
 	video_stream_source_t old_source;
