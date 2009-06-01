@@ -178,32 +178,4 @@ typedef union {
 	} vid0_zoffs;
 } stbx25xx_video_val;
 
-/* Interrupts */
-#define VIDEO_EOSP	(0x80000000 >> 0)
-#define VIDEO_FFS	(0x80000000 >> 1)
-#define VIDEO_SPTS	(0x80000000 >> 4)
-#define VIDEO_STC	(0x80000000 >> 5)
-#define VIDEO_ZOO	(0x80000000 >> 6)
-#define VIDEO_ACCC	(0x80000000 >> 7)
-#define VIDEO_PLBME	(0x80000000 >> 8)
-#define VIDEO_BRC_IRQ	(9)
-#define VIDEO_BRC	(0x80000000 >> 9)
-#define VIDEO_SSTART	(0x80000000 >> 16)
-#define VIDEO_SERR	(0x80000000 >> 17)
-#define VIDEO_SEND_IRQ	(18)
-#define VIDEO_SEND	(0x80000000 >> 18)
-#define VIDEO_GOPSMP	(0x80000000 >> 19)
-#define VIDEO_PSKIP	(0x80000000 >> 20)
-#define VIDEO_PSTART	(0x80000000 >> 21)
-#define VIDEO_PRC	(0x80000000 >> 22)
-#define VIDEO_UD	(0x80000000 >> 23)
-#define VIDEO_VBIST	(0x80000000 >> 24)
-#define VIDEO_VDIST	(0x80000000 >> 25)
-#define VIDEO_FFVS	(0x80000000 >> 26)
-#define VIDEO_BMC	(0x80000000 >> 27)
-#define VIDEO_TBC	(0x80000000 >> 28)
-#define VIDEO_VRBT	(0x80000000 >> 29)
-#define VIDEO_VRBO	(0x80000000 >> 30)
-#define VIDEO_OSDD	(0x80000000 >> 31)
-
 #endif

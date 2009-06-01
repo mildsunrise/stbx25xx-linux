@@ -13,7 +13,6 @@
 #include "stbx25xx_video_val.h"
 
 /* Interrupts */
-// #define VIDEO_IRQ			3
 #define STBx25xx_VIDEO_IRQ_COUNT	32
 
 /* Misc */
@@ -178,6 +177,33 @@
 #define STB_FB_SETSHADE		_IO('o', 6)
 #define STB_FB_SETAF		_IO('o', 7)
 #define STB_VID_SETAF		_IO('o', 64)
+
+/* Interrupts */
+#define IRQ_BIT(bit)		(0x80000000UL >> (bit))
+#define VIDEO_EOSP_IRQ		(0)
+#define VIDEO_FFS_IRQ		(1)
+#define VIDEO_SPTS_IRQ		(4)
+#define VIDEO_STC_IRQ		(5)
+#define VIDEO_ZOO_IRQ		(6)
+#define VIDEO_ACCC_IRQ		(7)
+#define VIDEO_PLBME_IRQ		(8)
+#define VIDEO_BRC_IRQ		(9)
+#define VIDEO_SSTART_IRQ	(16)
+#define VIDEO_SERR_IRQ		(17)
+#define VIDEO_SEND_IRQ		(18)
+#define VIDEO_GOPSMP_IRQ	(19)
+#define VIDEO_PSKIP_IRQ		(20)
+#define VIDEO_PSTART_IRQ	(21)
+#define VIDEO_PRC_IRQ		(22)
+#define VIDEO_UD_IRQ		(23)
+#define VIDEO_VBIST_IRQ		(24)
+#define VIDEO_VDIST_IRQ		(25)
+#define VIDEO_FFVS_IRQ		(26)
+#define VIDEO_BMC_IRQ		(27)
+#define VIDEO_TBC_IRQ		(28)
+#define VIDEO_VRBT_IRQ		(29)
+#define VIDEO_VRBO_IRQ		(30)
+#define VIDEO_OSDD_IRQ		(31)
 
 /* Register accessors */
 #define set_video_reg(reg, val) \

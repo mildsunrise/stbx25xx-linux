@@ -66,7 +66,7 @@ typedef void (*video_irq_handler_t)(struct stbx25xx_video_data *vid, int irq);
 static video_irq_handler_t video_int_handlers[STBx25xx_VIDEO_IRQ_COUNT];
 static u32 irq_stats[STBx25xx_VIDEO_IRQ_COUNT];
 
-static char *irq_name[] = {
+static char *irq_name[STBx25xx_VIDEO_IRQ_COUNT] = {
 	"End of service picture",
 	"Freeze frame status",
 	"Reserved 2",
@@ -735,7 +735,7 @@ static void dummy_int_handler(struct stbx25xx_video_data *vid, int irq)
 	
 	info("Video IRQ: %s interrupt", irq_name[irq]);
 	
-	if(irq == VIDEO_PRC) {
+	if(irq == VIDEO_PRC_IRQ) {
 		width = *(u16 *)(&vid->user_data[0x1f4]);
 		height = *(u16 *)(&vid->user_data[0x1f6]);
 		info("new width: 0x%04x, new height: 0x%04x", width, height);
@@ -1517,9 +1517,9 @@ int stbx25xx_video_init(struct stbx25xx_dvb_data *dvb)
 #endif
 	
 	memset(irq_stats, 0, sizeof(u32) * STBx25xx_VIDEO_IRQ_COUNT);
-	video_int_mask = VIDEO_BRC | VIDEO_ACCC | VIDEO_SERR | VIDEO_PRC |
-			VIDEO_PLBME | VIDEO_PSKIP | VIDEO_BMC | VIDEO_TBC |
-			VIDEO_VRBO;
+	video_int_mask = IRQ_BIT(VIDEO_BRC_IRQ) | IRQ_BIT(VIDEO_ACCC_IRQ) | IRQ_BIT(VIDEO_SERR_IRQ) | 
+			IRQ_BIT(VIDEO_PRC_IRQ) | IRQ_BIT(VIDEO_PLBME_IRQ) | IRQ_BIT(VIDEO_PSKIP_IRQ) |
+			IRQ_BIT(VIDEO_BMC_IRQ) | IRQ_BIT(VIDEO_TBC_IRQ) | IRQ_BIT(VIDEO_VRBO_IRQ);
 	
 	for(i = 0; i < STBx25xx_VIDEO_IRQ_COUNT; i++)
 		video_install_int_handler(i, dummy_int_handler);
