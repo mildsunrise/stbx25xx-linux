@@ -9,14 +9,62 @@
 #ifndef __STBx25xx_AUDIO_H__
 #define __STBx25xx_AUDIO_H__
 
+#include <asm/dcr.h>
 #include "stbx25xx_audio_val.h"
 
-/* Interrupts */
-#define AUDIO_IRQ	2
+/* Misc */
+#define IRQ_BIT(bit)			(0x80000000UL >> (bit))
+#define STBx25xx_AUDIO_IRQ_COUNT	32
+#define AUDIO_PROC_IRQS_NAME		"audio_interrupts"
+#define AUDIO_SEGMENT_SHIFT		(7)
+#define STBx25xx_AUDIO_CAPS		(AUDIO_CAP_MP1 | AUDIO_CAP_MP2 | AUDIO_CAP_MP3)
 
 /* Memory map */
-#define AUDIO_DATA_BASE		0xA0400000	/* MPEG Audio Decoder Memory */
-#define AUDIO_DATA_SIZE		0x00400000	/* Second 4 MB of the second memory bank */
+#define AUDIO_DATA_BASE		(0xA0600000)	/* MPEG Audio Decoder Memory */
+#define AUDIO_DATA_SIZE		(0x00200000)	/* 6-8MB of the second memory bank */
+
+/* Segment 1 */
+#define AUDIO_DAB1_OFFSET	(0x00000000)
+#define AUDIO_DAB1_SIZE		(0x8000)
+#define AUDIO_DAB2_OFFSET	(AUDIO_DAB1_OFFSET + AUDIO_DAB1_SIZE)
+#define AUDIO_DAB2_SIZE		(0x8000)
+#define AUDIO_AWA_OFFSET	(AUDIO_DAB2_OFFSET + AUDIO_DAB2_SIZE)
+#define AUDIO_AWA_SIZE		(0x20000)
+
+/* Segment 3 */
+#define AUDIO_RB_OFFSET		(AUDIO_AWA_OFFSET + AUDIO_AWA_SIZE)
+#define AUDIO_RB_SIZE		(0x10000)
+
+/* Segment 2 */
+#define AUDIO_PTS_OFFSET	(AUDIO_RB_OFFSET + AUDIO_RB_SIZE)
+#define AUDIO_PTS_SIZE		(0x20000)
+
+/* Memory segments */
+#define SEG1_BASE		(AUDIO_DATA_BASE + AUDIO_DAB1_OFFSET)
+#define SEG1_SIZE		(AUDIO_DAB1_SIZE + AUDIO_DAB2_SIZE + AUDIO_AWA_SIZE)
+#define SEG2_BASE		(AUDIO_DATA_BASE + AUDIO_PTS_OFFSET)
+#define SEG2_SIZE		(AUDIO_PTS_SIZE)
+#define SEG3_BASE		(AUDIO_DATA_BASE + AUDIO_RB_OFFSET)
+#define SEG3_SIZE		(AUDIO_RB_SIZE)
+
+/* Clip mode buffers */
+#define AUDIO_CLIP_OFFSET	(AUDIO_PTS_OFFSET + AUDIO_PTS_SIZE)
+#define AUDIO_CLIP_SIZE		(AUDIO_DATA_SIZE - AUDIO_CLIP_OFFSET)
+#define AUDIO_CLIP_ADDR		(AUDIO_DATA_BASE + AUDIO_CLIP_OFFSET)
+#define AUDIO_CLIP_BLOCK_SIZE	(0x10000)
+#define AUDIO_ALIGNMENT_MASK	((2 * AUDIO_CLIP_BLOCK_SIZE) - 1)
+
+#if (AUDIO_CLIP_BLOCK_SIZE & ~PAGE_MASK)
+#error Clip mode block size must be a multiple of 4KB
+#endif
+
+#if (AUDIO_DATA_BASE & AUDIO_ALIGNMENT_MASK)
+#error Audio memory address unaligned!
+#endif
+
+#if (AUDIO_DATA_SIZE & AUDIO_ALIGNMENT_MASK)
+#error Audio memory size unaligned!
+#endif
 
 /* Registers */
 #define AUD_CTRL0		0x01a0
@@ -51,5 +99,35 @@
 #define AUD_OFFS		0x01bd
 #define AUD_WLR			0x01be
 #define AUD_WAR2		0x01bf
+
+/* Interrupts */
+#define AUDIO_SYNC_IRQ		(12)
+#define AUDIO_CCC_IRQ		(16)
+#define AUDIO_RTBC_IRQ		(17)
+#define AUDIO_BTF_IRQ		(18)
+#define AUDIO_BTE_IRQ		(19)
+#define AUDIO_AMSI_IRQ		(20)
+#define AUDIO_PE_IRQ		(21)
+#define AUDIO_BE_IRQ		(22)
+#define AUDIO_BF_IRQ		(23)
+#define AUDIO_PSE_IRQ		(24)
+#define AUDIO_PTO_IRQ		(25)
+#define AUDIO_ADO_IRQ		(26)
+#define AUDIO_ADD_IRQ		(27)
+#define AUDIO_CM2_IRQ		(30)
+#define AUDIO_CM_IRQ		(31)
+
+/* Register accessors */
+#define set_audio_reg(reg, val) \
+	mtdcr(reg, val.raw)
+
+#define set_audio_reg_raw(reg, val) \
+	mtdcr(reg, val)
+
+#define get_audio_reg(reg) \
+	((stbx25xx_audio_val)mfdcr(reg))
+
+#define get_audio_reg_raw(reg) \
+	mfdcr(reg)
 
 #endif

@@ -98,6 +98,17 @@ struct stbx25xx_audio_data {
 	struct dvb_device *audio;
 	struct audio_status state;
 	wait_queue_head_t write_wq;
+
+	/* Audio memory */
+	void *memory;
+
+	/* Clip mode */
+	void *clip;
+	size_t clip_size;
+
+	/* Mixer clip mode */
+	void *mixer;
+	size_t mixer_size;
 };
 
 struct stbx25xx_demux_data {
