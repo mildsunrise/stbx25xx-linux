@@ -93,22 +93,54 @@ struct stbx25xx_video_data {
 	struct mutex osd_mode_mutex;
 };
 
+struct stbx25xx_clip_dev {
+	/* Memory */
+	void *memory;
+	size_t size;
+
+	/* Registers */
+	unsigned int qar;
+	unsigned int qlr;
+
+	/* Buffer queue */
+	unsigned int *buf_queue;
+	unsigned int buf_r;
+	unsigned int buf_w;
+	unsigned int buf_num;
+	unsigned int buf_full;
+	wait_queue_head_t buf_wait;
+
+	/* Clip queue */
+	unsigned int *clip_queue;
+	unsigned int clip_r;
+	unsigned int clip_w;
+	unsigned int clip_num;
+	unsigned int clip_full;
+	wait_queue_head_t clip_wait;
+
+	/* Kernel thread */
+	struct task_struct *thread;
+	wait_queue_head_t done;
+	unsigned int cur_clips[2];
+	unsigned int cur_w;
+	unsigned int cur_r;
+};
+
 struct stbx25xx_audio_data {
 	/* Audio decoder */
 	struct dvb_device *audio;
 	struct audio_status state;
 	wait_queue_head_t write_wq;
+	int stream_type;
 
 	/* Audio memory */
 	void *memory;
 
-	/* Clip mode */
-	void *clip;
-	size_t clip_size;
+	/* Main clip device */
+	struct stbx25xx_clip_dev clip;
 
-	/* Mixer clip mode */
-	void *mixer;
-	size_t mixer_size;
+	/* Mixer clip device */
+	struct stbx25xx_clip_dev mixer;
 };
 
 struct stbx25xx_demux_data {

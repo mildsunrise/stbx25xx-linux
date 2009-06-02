@@ -23,6 +23,7 @@
 #include "stbx25xx_audio.h"
 #include <linux/firmware.h>
 #include <linux/proc_fs.h>
+#include <linux/kthread.h>
 
 /**
 	Interrupts
@@ -122,6 +123,289 @@ static void dummy_int_handler(struct stbx25xx_audio_data *aud, int irq)
 }
 
 /**
+	Clip mode
+*/
+
+static int audio_clip_buffers_free(struct stbx25xx_clip_dev *clip)
+{
+	unsigned long flags;
+	int ret;
+
+	local_irq_save(flags);
+
+	if(clip->buf_r > clip->buf_w)
+		ret = clip->buf_num - clip->buf_r + clip->buf_w;
+	else
+		ret = clip->buf_w - clip->buf_r;
+
+	if(!ret && clip->buf_full)
+		ret = clip->buf_num;
+
+	local_irq_restore(flags);
+
+	return ret;
+}
+
+static unsigned int audio_clip_get_buf_wait(struct stbx25xx_clip_dev *clip)
+{
+	unsigned long flags;
+	unsigned int ret = 0;
+
+	if(wait_event_killable(clip->buf_wait, audio_clip_buffers_free(clip) > 0))
+		return 0;
+
+	local_irq_save(flags);
+
+	if(audio_clip_buffers_free(clip) > 0) {
+		ret = clip->buf_queue[clip->buf_r++];
+
+		if(clip->buf_queue[clip->buf_r] == 0xffffffff)
+			clip->buf_r = 0;
+
+		if(clip->buf_r == clip->buf_w)
+			clip->buf_full = 0;
+	}
+
+	local_irq_restore(flags);
+
+	return ret;
+}
+
+static unsigned int audio_clip_get_buf_nowait(struct stbx25xx_clip_dev *clip)
+{
+	unsigned long flags;
+	unsigned int ret = 0;
+
+	local_irq_save(flags);
+
+	if(audio_clip_buffers_free(clip) > 0) {
+		ret = clip->buf_queue[clip->buf_r++];
+
+		if(clip->buf_queue[clip->buf_r] == 0xffffffff)
+			clip->buf_r = 0;
+
+		if(clip->buf_r == clip->buf_w)
+			clip->buf_full = 0;
+	}
+
+	local_irq_restore(flags);
+
+	return ret;
+}
+
+static void audio_clip_put_buf(struct stbx25xx_clip_dev *clip, unsigned int buf)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+
+	clip->buf_queue[clip->buf_w++] = buf;
+
+	if(clip->buf_queue[clip->buf_w] == 0xffffffff)
+		clip->buf_w = 0;
+
+	if(clip->buf_r == clip->buf_w)
+		clip->buf_full = 1;
+
+	local_irq_restore(flags);
+
+	wake_up(&clip->buf_wait);
+}
+
+static int audio_clip_clips_available(struct stbx25xx_clip_dev *clip)
+{
+	unsigned long flags;
+	int ret;
+
+	local_irq_save(flags);
+
+	if(clip->clip_r > clip->clip_w)
+		ret = clip->clip_num - clip->clip_r + clip->clip_w;
+	else
+		ret = clip->clip_w - clip->clip_r;
+
+	if(!ret && clip->clip_full)
+		ret = clip->clip_num;
+
+	local_irq_restore(flags);
+
+	return ret;
+}
+
+static unsigned int audio_clip_get_clip_wait(struct stbx25xx_clip_dev *clip)
+{
+	unsigned long flags;
+	unsigned int ret = 0;
+
+	if(wait_event_killable(clip->clip_wait, audio_clip_clips_available(clip) > 0))
+		return 0;
+
+	local_irq_save(flags);
+
+	if(audio_clip_clips_available(clip) > 0) {
+		ret = clip->clip_queue[clip->clip_r++];
+
+		if(clip->clip_queue[clip->clip_r] == 0xffffffff)
+			clip->clip_r = 0;
+
+		if(clip->clip_r == clip->clip_w)
+			clip->clip_full = 0;
+	}
+
+	local_irq_restore(flags);
+
+	return ret;
+}
+
+static void audio_clip_put_clip(struct stbx25xx_clip_dev *clip, unsigned int data)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+
+	clip->clip_queue[clip->clip_w++] = data;
+
+	if(clip->clip_queue[clip->clip_w] == 0xffffffff)
+		clip->clip_w = 0;
+
+	if(clip->clip_r == clip->clip_w)
+		clip->clip_full = 1;
+
+	local_irq_restore(flags);
+
+	wake_up(&clip->clip_wait);
+}
+
+static int audio_block_valid(struct stbx25xx_clip_dev *clip)
+{
+	stbx25xx_audio_val reg;
+
+	reg = get_audio_reg(clip->qlr);
+	return (reg.qlr.bv != 0);
+}
+
+static int audio_clip_queue(struct stbx25xx_clip_dev *clip, const char *buf, size_t count, int nonblocking)
+{
+	size_t size, sent;
+	unsigned int clip_buf;
+
+	BUG_ON(in_irq());
+
+	sent = 0;
+
+	while(count) {
+		if(nonblocking) {
+			clip_buf = audio_clip_get_buf_nowait(clip);
+			if(!clip_buf)
+				return (sent) ? sent : -EAGAIN;
+		} else {
+			clip_buf = audio_clip_get_buf_wait(clip);
+			if(!clip_buf)
+				return -ENOMEM;
+		}
+
+		size = min(count, (size_t)AUDIO_CLIP_BLOCK_SIZE);
+
+		memcpy((void *)clip_buf, &buf[sent], size);
+
+		clip_buf |= size - 1;
+
+		audio_clip_put_clip(clip, clip_buf);
+
+		sent += size;
+		count -= size;
+	}
+
+	return sent;
+}
+
+static int audio_clip_write(struct stbx25xx_clip_dev *clip, unsigned int addr, unsigned int len)
+{
+	stbx25xx_audio_val reg;
+	unsigned long flags;
+
+	if(wait_event_killable(clip->done, !audio_block_valid(clip)))
+		return -1;
+
+	local_irq_save(flags);
+
+	clip->cur_clips[clip->cur_w] = addr;
+	clip->cur_w ^= 1;
+
+	local_irq_restore(flags);
+
+	set_audio_reg_raw(clip->qar, addr);
+
+	reg.raw = 0;
+	reg.qlr.bv = 1;
+	reg.qlr.len = len;
+	set_audio_reg(clip->qlr, reg);
+
+	return 0;
+}
+
+static int audio_clip_thread(void *data)
+{
+	struct stbx25xx_clip_dev *clip = data;
+	unsigned int clip_data;
+
+	while(!kthread_should_stop()) {
+		clip_data = audio_clip_get_clip_wait(clip);
+
+		if(!clip_data) {
+			if(kthread_should_stop())
+				return 0;
+		} else {
+			continue;
+		}
+
+		if(audio_block_valid(clip) && kthread_should_stop())
+			return 0;
+
+		audio_clip_write(clip, clip_data & ~(AUDIO_CLIP_BLOCK_SIZE - 1), clip_data & (AUDIO_CLIP_BLOCK_SIZE - 1));
+	}
+
+	return 0;
+}
+
+static void audio_clip_interrupt(struct stbx25xx_audio_data *aud, int irq)
+{
+	struct stbx25xx_clip_dev *clip = &aud->clip;
+	unsigned long flags;
+
+	local_irq_save(flags);
+	
+	audio_clip_put_buf(clip, clip->cur_clips[clip->cur_r]);
+	clip->cur_r ^= 1;
+
+	local_irq_restore(flags);
+	
+	wake_up(&aud->clip.done);
+}
+
+static void audio_init_clip_queues(struct stbx25xx_clip_dev *clip)
+{
+	unsigned int addr;
+	int i;
+	
+	clip->buf_r = 0;
+	clip->buf_w = 0;
+	clip->buf_queue[clip->buf_num] = 0xffffffff;
+	clip->buf_full = 1;
+
+	addr = (unsigned int) clip->memory;
+	for(i = 0; i < clip->buf_num; i++, addr += AUDIO_CLIP_BLOCK_SIZE)
+		clip->buf_queue[i] = addr;
+
+	clip->clip_r = 0;
+	clip->clip_w = 0;
+	clip->clip_queue[clip->clip_num] = 0xffffffff;
+	clip->clip_full = 0;
+
+	memset(clip->clip_queue, 0, clip->clip_num);
+}
+
+/**
 	Utility functions
 */
 
@@ -134,67 +418,224 @@ static void audio_rb_reset(void)
 
 static int audio_stop(struct stbx25xx_audio_data *aud)
 {
+	stbx25xx_audio_val reg;
+
+	reg = get_audio_reg(AUD_CTRL2);
+	reg.ctrl2.hd = 1;
+	set_audio_reg(AUD_CTRL2, reg);
+
 	return 0;
 }
 
 static int audio_play(struct stbx25xx_audio_data *aud)
 {
-	return 0;
-}
+	stbx25xx_audio_val reg;
 
-static int audio_pause(struct stbx25xx_audio_data *aud)
-{
-	return 0;
-}
-
-static int audio_resume(struct stbx25xx_audio_data *aud)
-{
+	reg = get_audio_reg(AUD_CTRL2);
+	reg.ctrl2.hd = 0;
+	set_audio_reg(AUD_CTRL2, reg);
+	
 	return 0;
 }
 
 static int audio_set_source(struct stbx25xx_audio_data *aud, audio_stream_source_t source)
 {
+	stbx25xx_audio_val reg;
+
+	if(aud->state.stream_source != AUDIO_SOURCE_MEMORY && source == AUDIO_SOURCE_MEMORY) {
+		audio_init_clip_queues(&aud->clip);
+		aud->clip.thread = kthread_create(audio_clip_thread, &aud->clip, "stbaudioclip");
+	}
+
+	reg = get_audio_reg(AUD_CTRL0);
+	reg.ctrl0.cm = (source == AUDIO_SOURCE_MEMORY);
+	set_audio_reg(AUD_CTRL0, reg);
+
+	if(aud->state.stream_source == AUDIO_SOURCE_MEMORY && source != AUDIO_SOURCE_MEMORY) {
+		kthread_stop(aud->clip.thread);
+	}
+
+	aud->state.stream_source = source;
+	
 	return 0;
 }
 
 static int audio_set_mute(struct stbx25xx_audio_data *aud, int mute)
 {
+	stbx25xx_audio_val reg;
+
+	reg = get_audio_reg(AUD_CTRL1);
+	reg.ctrl1.sm = !!mute;
+	set_audio_reg(AUD_CTRL1, reg);
+
+	aud->state.mute_state = !!mute;
+	
 	return 0;
 }
 
 static int audio_set_sync(struct stbx25xx_audio_data *aud, int sync)
 {
+	stbx25xx_audio_val reg;
+
+	reg = get_audio_reg(AUD_CTRL0);
+	reg.ctrl0.as = !!sync;
+	set_audio_reg(AUD_CTRL0, reg);
+
+	aud->state.AV_sync_state = !!sync;
+
 	return 0;
 }
 
 static int audio_set_bypass(struct stbx25xx_audio_data *aud, int bypass)
 {
+	stbx25xx_audio_val reg;
+
+	if(!(aud->stream_type & (AUDIO_CAP_MP1 | AUDIO_CAP_MP2 | AUDIO_CAP_MP3 | AUDIO_CAP_AC3)))
+		return -EINVAL;
+
+	reg = get_audio_reg(AUD_CTRL2);
+	reg.ctrl2.id = !!bypass;
+	set_audio_reg(AUD_CTRL2, reg);
+
+	aud->state.bypass_mode = !!bypass;
+	
 	return 0;
 }
 
 static int audio_channel_sel(struct stbx25xx_audio_data *aud, audio_channel_select_t channel)
 {
-	return 0;
-}
+	stbx25xx_audio_val reg;
 
-static int audio_clear_buffer(struct stbx25xx_audio_data *aud)
-{
+	reg = get_audio_reg(AUD_CTRL1);
+
+	switch(channel) {
+	case AUDIO_STEREO:
+		reg.ctrl1.drm = 0;
+		break;
+	case AUDIO_MONO_LEFT:
+		reg.ctrl1.drm = 1;
+		break;
+	case AUDIO_MONO_RIGHT:
+		reg.ctrl1.drm = 2;
+		break;
+	case AUDIO_MONO:
+		reg.ctrl1.drm = 3;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	set_audio_reg(AUD_CTRL1, reg);
+	aud->state.channel_select = channel;
+
 	return 0;
 }
 
 static int audio_set_stream(struct stbx25xx_audio_data *aud, unsigned int stream_id)
 {
+	stbx25xx_audio_val reg;
+
+	reg.raw = 0;
+	reg.stream_id.stmie = 0xff;
+	reg.stream_id.stmm = stream_id & 0xff;
+	set_audio_reg(AUD_STREAM_ID, reg);
+
 	return 0;
 }
 
 static int audio_set_volume(struct stbx25xx_audio_data *aud, audio_mixer_t *mixer)
 {
+	stbx25xx_audio_val reg;
+
+	memcpy(&aud->state.mixer_state, mixer, sizeof(audio_mixer_t));
+
+	if(aud->state.mixer_state.volume_left > 255)
+		aud->state.mixer_state.volume_left = 255;
+
+	if(aud->state.mixer_state.volume_right > 255)
+		aud->state.mixer_state.volume_right = 255;
+
+	reg = get_audio_reg(AUD_ATT_FT);
+	reg.att.left = 63 - (aud->state.mixer_state.volume_left >> 2);
+	reg.att.right = 63 - (aud->state.mixer_state.volume_right >> 2);
+	set_audio_reg(AUD_ATT_FT, reg);
+	set_audio_reg(AUD_ATT_RR, reg);
+
+	reg.att.left = (reg.att.left + reg.att.right) / 2;
+	reg.att.right = min(63 - (aud->state.mixer_state.volume_left >> 2), 63 - (aud->state.mixer_state.volume_right >> 2));
+	set_audio_reg(AUD_ATT_CR, reg);
+	
 	return 0;
 }
 
 static int audio_set_stream_type(struct stbx25xx_audio_data *aud, int type)
 {
+	stbx25xx_audio_val reg;
+
+	reg = get_audio_reg(AUD_CTRL2);
+	reg.ctrl2.prog3.raw = 0;
+
+	switch(type) {
+	case AUDIO_CAP_MP1:
+	case AUDIO_CAP_MP2:
+	case AUDIO_CAP_MP3:
+		reg.ctrl2.id = 0;
+		reg.ctrl2.strmtp = AUD_STRMTP_MPEG;
+		break;
+	case AUDIO_CAP_AC3:
+		reg.ctrl2.id = 1;
+		reg.ctrl2.strmtp = AUD_STRMTP_AC3;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	set_audio_reg(AUD_CTRL2, reg);
+	aud->stream_type = type;
+	
 	return 0;
+}
+
+static void audio_dac_enable(void)
+{
+	stbx25xx_audio_val reg;
+
+	reg = get_audio_reg(AUD_CTRL1);
+	reg.ctrl1.dce = 1;
+	set_audio_reg(AUD_CTRL1, reg);
+}
+
+static void audio_dac_disable(void)
+{
+	stbx25xx_audio_val reg;
+
+	reg = get_audio_reg(AUD_CTRL1);
+	reg.ctrl1.dce = 0;
+	set_audio_reg(AUD_CTRL1, reg);
+}
+
+static void audio_dsp_start(void)
+{
+	stbx25xx_audio_val reg;
+
+	reg = get_audio_reg(AUD_CTRL0);
+	reg.ctrl0.adiso = 1;
+	reg.ctrl0.ep = 1;
+	reg.ctrl0.vmd = 1;
+	reg.ctrl0.ei = 1;
+	set_audio_reg(AUD_CTRL0, reg);
+}
+
+static void audio_dsp_stop(void)
+{
+	stbx25xx_audio_val reg;
+
+	reg = get_audio_reg(AUD_CTRL0);
+	reg.ctrl0.adiso = 0;
+	reg.ctrl0.ep = 0;
+	reg.ctrl0.vmd = 0;
+	reg.ctrl0.ei = 0;
+	set_audio_reg(AUD_CTRL0, reg);
 }
 
 /**
@@ -256,6 +697,8 @@ static struct proc_dir_entry *audio_proc_irqs;
 
 static void audio_init_procfs(void)
 {
+	memset(irq_stats, 0, sizeof(u32) * STBx25xx_AUDIO_IRQ_COUNT);
+	
 	audio_proc_irqs = proc_create(AUDIO_PROC_IRQS_NAME, 0, stbx25xx_proc_dir, &proc_audio_iops);
 }
 
@@ -267,6 +710,66 @@ static void audio_deinit_procfs(void)
 /**
 	Hardware setup
 */
+static int audio_clip_init(struct stbx25xx_clip_dev *clip, int mixer)
+{
+	int ret;
+	
+	if(mixer) {
+		clip->qar = AUD_QAR2;
+		clip->qlr = AUD_QLR2;
+	} else {
+		clip->qar = AUD_QAR;
+		clip->qlr = AUD_QLR;
+	}
+
+	init_waitqueue_head(&clip->done);
+
+	/* Item count */
+	clip->buf_num = sizeof(unsigned int) * clip->size / AUDIO_CLIP_BLOCK_SIZE;
+	clip->clip_num = clip->buf_num;
+
+	/* Buffer queue */
+	clip->buf_queue = kmalloc(clip->buf_num + 1, GFP_KERNEL);
+	if(clip->buf_queue == NULL) {
+		err("could not allocate memory for clip mode buffer queue");
+		ret = -ENOMEM;
+		goto err_bqueue;
+	}
+
+	init_waitqueue_head(&clip->buf_wait);
+
+	/* Clip queue */
+	clip->clip_queue = kmalloc(clip->clip_num + 1, GFP_KERNEL);
+	if(clip->buf_queue == NULL) {
+		err("could not allocate memory for clip mode clip queue");
+		ret = -ENOMEM;
+		goto err_cqueue;
+	}
+
+	audio_init_clip_queues(clip);
+
+	init_waitqueue_head(&clip->clip_wait);
+
+	clip->cur_r = 0;
+	clip->cur_w = 0;
+
+	audio_install_int_handler(AUDIO_CM_IRQ, audio_clip_interrupt);
+	audio_install_int_handler(AUDIO_CM2_IRQ, audio_clip_interrupt);
+
+	return 0;
+	
+err_cqueue:
+	kfree(clip->buf_queue);
+err_bqueue:
+	return ret;
+}
+
+static void audio_clip_deinit(struct stbx25xx_clip_dev *clip)
+{
+	kfree(clip->clip_queue);
+	kfree(clip->buf_queue);
+}
+
 static int audio_memory_init(struct stbx25xx_audio_data *aud)
 {
 	stbx25xx_audio_val reg;
@@ -287,20 +790,20 @@ static int audio_memory_init(struct stbx25xx_audio_data *aud)
 	reg.offsets.awa = AUDIO_AWA_OFFSET / 4096;
 	set_audio_reg(AUD_OFFS, reg);
 
-	aud->clip = aud->memory + AUDIO_CLIP_OFFSET;
-	aud->clip_size = AUDIO_CLIP_SIZE / 2;
-	aud->mixer = aud->memory + AUDIO_CLIP_OFFSET + AUDIO_CLIP_SIZE / 2;
-	aud->mixer_size = AUDIO_CLIP_SIZE / 2;
+	aud->clip.memory = aud->memory + AUDIO_CLIP_OFFSET;
+	aud->clip.size = AUDIO_CLIP_SIZE / 2;
+	aud->mixer.memory = aud->memory + AUDIO_CLIP_OFFSET + AUDIO_CLIP_SIZE / 2;
+	aud->mixer.size = AUDIO_CLIP_SIZE / 2;
 
 	return 0;
 }
 
 static void audio_memory_deinit(struct stbx25xx_audio_data *aud)
 {
-	aud->clip = NULL;
-	aud->clip_size = 0;
-	aud->mixer = NULL;
-	aud->mixer_size = 0;
+	aud->clip.memory = NULL;
+	aud->clip.size = 0;
+	aud->mixer.memory = NULL;
+	aud->mixer.size = 0;
 	
 	iounmap(aud->memory);
 	
@@ -356,19 +859,20 @@ static int audio_firmware_init(struct stbx25xx_audio_data *aud)
 	reg.ctrl0.md = 1;
 	set_audio_reg(AUD_CTRL0, reg);
 
-	for(i = 0; i < code->size; i += 2) {
+	for(i = 0; i < code->size / 4; i++) {
 		word = (code->data[i] << 8) | code->data[i+1];
-		set_audio_reg_raw(AUD_MDR, word);
+		set_audio_reg_raw(AUD_MDR, ((uint32_t *)code->data)[i]);
 	}
 
 	reg.ctrl0.md = 0;
 	set_audio_reg(AUD_CTRL0, reg);
 
+#if 0
 	/* verify the firmware */
 	reg.ctrl0.md = 1;
 	set_audio_reg(AUD_CTRL0, reg);
 
-	for(i = 0; i < code->size; i += 2) {
+	for(i = 0; i < code->size; i += 4) {
 		word = (code->data[i] << 8) | code->data[i+1];
 		if(get_audio_reg_raw(AUD_MDR) != word) {
 			err("firmware verification failure at address %d!", i);
@@ -379,6 +883,7 @@ static int audio_firmware_init(struct stbx25xx_audio_data *aud)
 
 	reg.ctrl0.md = 0;
 	set_audio_reg(AUD_CTRL0, reg);
+#endif
 
 	info("audio firmware loaded, loading utility data");
 
@@ -393,32 +898,103 @@ static int audio_firmware_init(struct stbx25xx_audio_data *aud)
 	return ret;
 }
 
+static void audio_hw_init(void)
+{
+	set_audio_reg_raw(AUD_CTRL0, 0);
+	set_audio_reg_raw(AUD_IMR, 0);
+	
+	audio_rb_reset();
+}
+
+static void audio_hw_configure(struct stbx25xx_audio_data *aud)
+{
+	set_audio_reg_raw(AUD_STREAM_ID, 0);
+	set_audio_reg_raw(AUD_IMR, audio_int_mask);
+
+	set_audio_reg_raw(AUD_CTRL2, 0);
+	audio_set_stream_type(aud, aud->stream_type);
+	audio_set_bypass(aud, aud->state.bypass_mode);
+
+	set_audio_reg_raw(AUD_CTRL1, 0);
+	audio_channel_sel(aud, aud->state.channel_select);
+	audio_set_mute(aud, aud->state.mute_state);
+
+	audio_set_sync(aud, aud->state.AV_sync_state);
+	audio_set_source(aud, aud->state.stream_source);
+
+	audio_set_volume(aud, &aud->state.mixer_state);
+}
+
 /**
 	Exported API calls
 */
 void stbx25xx_audio_sync_stc(u32 stcl, u32 stch)
 {
-	
+	set_audio_reg_raw(AUD_STC, stch & 0xffff);
+	set_audio_reg_raw(AUD_STC, stch >> 16);
+	set_audio_reg_raw(AUD_STC, (stcl >> 9) & 0x1);
 }
 
 ssize_t stbx25xx_audio_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 {
-	return 0;
-}
+	struct dvb_device *dvbdev;
+	struct stbx25xx_dvb_data *dvb;
+	struct stbx25xx_audio_data *aud;
 
-int stbx25xx_audio_open(struct inode *inode, struct file *file)
-{
-	return 0;
-}
+	if(file == NULL)
+		return -EINVAL;
 
-int stbx25xx_audio_release(struct inode *inode, struct file *file)
-{
-	return 0;
+	dvbdev = file->private_data;
+
+	if(dvbdev == NULL)
+		return -EINVAL;
+
+	dvb = dvbdev->priv;
+
+	if(dvb == NULL)
+		return -EINVAL;
+
+	aud = &dvb->audio;
+
+	if (((file->f_flags & O_ACCMODE) == O_RDONLY) ||
+		(aud->state.stream_source != AUDIO_SOURCE_MEMORY))
+			return -EPERM;
+
+	return audio_clip_queue(&aud->clip, buf, count, file->f_flags & O_NONBLOCK);
 }
 
 unsigned int stbx25xx_audio_poll(struct file *file, poll_table *wait)
 {
-	return 0;
+	struct dvb_device *dvbdev;
+	struct stbx25xx_dvb_data *dvb;
+	struct stbx25xx_audio_data *aud;
+	unsigned int mask = 0;
+
+	if(file == NULL)
+		return -EINVAL;
+
+	dvbdev = file->private_data;
+
+	if(dvbdev == NULL)
+		return -EINVAL;
+
+	dvb = dvbdev->priv;
+
+	if(dvb == NULL)
+		return -EINVAL;
+
+	aud = &dvb->audio;
+
+	poll_wait(file, &aud->write_wq, wait);
+
+	if (aud->state.play_state == AUDIO_PLAYING) {
+		if (audio_clip_buffers_free(&aud->clip) > 0)
+			mask |= (POLLOUT | POLLWRNORM);
+	} else {
+		mask |= (POLLOUT | POLLWRNORM);
+	}
+
+	return mask;
 }
 
 int stbx25xx_audio_ioctl(struct inode *inode, struct file *file, unsigned int cmd, void *parg)
@@ -449,16 +1025,24 @@ int stbx25xx_audio_ioctl(struct inode *inode, struct file *file, unsigned int cm
 
 	switch (cmd) {
 	case AUDIO_STOP:
-		return audio_stop(aud);
+		audio_stop(aud);
+		aud->state.play_state = AUDIO_STOPPED;
+		break;
 
 	case AUDIO_PLAY:
-		return audio_play(aud);
+		audio_play(aud);
+		aud->state.play_state = AUDIO_PLAYING;
+		break;
 
 	case AUDIO_PAUSE:
-		return audio_pause(aud);
+		audio_stop(aud);
+		aud->state.play_state = AUDIO_PAUSED;
+		break;
 
 	case AUDIO_CONTINUE:
-		return audio_resume(aud);
+		audio_play(aud);
+		aud->state.play_state = AUDIO_PLAYING;
+		break;
 
 	case AUDIO_SELECT_SOURCE:
 		return audio_set_source(aud, (audio_stream_source_t) arg);
@@ -484,7 +1068,8 @@ int stbx25xx_audio_ioctl(struct inode *inode, struct file *file, unsigned int cm
 		break;
 
 	case AUDIO_CLEAR_BUFFER:
-		return audio_clear_buffer(aud);
+		audio_rb_reset();
+		break;
 
 	case AUDIO_SET_ID:
 		return audio_set_stream(aud, arg);
@@ -511,6 +1096,55 @@ int stbx25xx_audio_ioctl(struct inode *inode, struct file *file, unsigned int cm
 	return 0;
 }
 
+
+int stbx25xx_audio_open(struct inode *inode, struct file *file)
+{
+	struct dvb_device *dvbdev;
+	struct stbx25xx_dvb_data *dvb;
+	struct stbx25xx_audio_data *aud;
+	int err;
+
+	if(file == NULL)
+		return -EINVAL;
+
+	dvbdev = file->private_data;
+
+	if(dvbdev == NULL)
+		return -EINVAL;
+
+	dvb = dvbdev->priv;
+
+	if(dvb == NULL)
+		return -EINVAL;
+
+	aud = &dvb->audio;
+
+	if ((err = dvb_generic_open(inode, file)) < 0)
+		return err;
+
+	if((file->f_flags & O_ACCMODE) != O_RDONLY) {
+		audio_dsp_start();
+		audio_dac_enable();
+		audio_set_stream_type(aud, aud->stream_type);
+		audio_rb_reset();
+	}
+
+	return 0;
+}
+
+int stbx25xx_audio_release(struct inode *inode, struct file *file)
+{
+	if((file->f_flags & O_ACCMODE) != O_RDONLY) {
+		stbx25xx_audio_ioctl(inode, file, AUDIO_STOP, NULL);
+		stbx25xx_audio_ioctl(inode, file, AUDIO_SELECT_SOURCE, AUDIO_SOURCE_DEMUX);
+		audio_rb_reset();
+		audio_dac_disable();
+		audio_dsp_stop();
+	}
+
+	return dvb_generic_release(inode, file);
+}
+
 /**
 	Module init/exit
 */
@@ -521,6 +1155,7 @@ int stbx25xx_audio_init(struct stbx25xx_dvb_data *dvb)
 
 	printk(KERN_INFO "--- STBx25xx MPEG-2 Audio Decoder driver ---\n");
 
+	aud->stream_type = AUDIO_CAP_MP2;
 	aud->state.AV_sync_state = 0;
 	aud->state.mute_state = 0;
 	aud->state.play_state = AUDIO_STOPPED;
@@ -531,13 +1166,16 @@ int stbx25xx_audio_init(struct stbx25xx_dvb_data *dvb)
 	aud->state.mixer_state.volume_right = 0;
 	init_waitqueue_head(&aud->write_wq);
 
-	memset(irq_stats, 0, sizeof(u32) * STBx25xx_AUDIO_IRQ_COUNT);
-	audio_int_mask = 0;
+	audio_init_procfs();
+
+	audio_int_mask = IRQ_BIT(AUDIO_SYNC_IRQ) | IRQ_BIT(AUDIO_CCC_IRQ) | IRQ_BIT(AUDIO_RTBC_IRQ) |
+			IRQ_BIT(AUDIO_BTF_IRQ) | IRQ_BIT(AUDIO_BTE_IRQ) | IRQ_BIT(AUDIO_CM2_IRQ) |
+			IRQ_BIT(AUDIO_CM_IRQ);
 
 	for(i = 0; i < STBx25xx_AUDIO_IRQ_COUNT; i++)
 		audio_install_int_handler(i, dummy_int_handler);
 
-	audio_rb_reset();
+	audio_hw_init();
 
 	if((ret = request_irq(dvb->irq_num[STBx25xx_IRQ_AUDIO], audio_interrupt, IRQF_TRIGGER_HIGH, "audio", aud)) != 0) {
 		err("failed to request audio irq: error %d", ret);
@@ -554,8 +1192,23 @@ int stbx25xx_audio_init(struct stbx25xx_dvb_data *dvb)
 		goto err_fw;
 	}
 
-	return 0;
+	audio_hw_configure(aud);
 
+	if((ret = audio_clip_init(&aud->clip, 0)) != 0) {
+		err("main clip device initialization failed.");
+		goto err_clip_main;
+	}
+	
+	if((ret = audio_clip_init(&aud->mixer, 1)) != 0) {
+		err("mixer clip device initialization failed.");
+		goto err_clip_mixer;
+	}
+
+	return 0;
+	
+err_clip_mixer:
+	audio_clip_deinit(&aud->clip);
+err_clip_main:
 err_fw:
 	audio_memory_deinit(aud);
 err_mem:
@@ -567,7 +1220,10 @@ err_irq:
 void stbx25xx_audio_exit(struct stbx25xx_dvb_data *dvb)
 {
 	struct stbx25xx_audio_data *aud = &dvb->audio;
-	
+
+	audio_clip_deinit(&aud->clip);
+	audio_clip_deinit(&aud->mixer);
+	audio_deinit_procfs();
 	audio_memory_deinit(aud);
 	free_irq(dvb->irq_num[STBx25xx_IRQ_AUDIO], aud);
 }

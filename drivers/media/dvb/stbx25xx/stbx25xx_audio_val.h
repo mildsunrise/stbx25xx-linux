@@ -56,6 +56,7 @@ typedef union {
 		unsigned ip	:1;
 		unsigned id	:1;
 		union {
+			unsigned raw	:9;
 			struct {
 				unsigned	:6;
 				unsigned dualch	:1;
@@ -75,6 +76,11 @@ typedef union {
 				unsigned 	:2;
 			} upcm;
 		} prog3;
+#define AUD_STRMTP_AC3		0x00000000
+#define AUD_STRMTP_MPEG		0x00000001
+#define AUD_STRMTP_PCM		0x00000003
+#define AUD_STRMTP_DTS		0x00000002
+#define AUD_STRMTP_LPCM		0x00000001
 		unsigned strmtp	:2;
 	} ctrl2;
 	
