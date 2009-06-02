@@ -20,8 +20,8 @@
 #define STBx25xx_AUDIO_CAPS		(AUDIO_CAP_MP1 | AUDIO_CAP_MP2 | AUDIO_CAP_MP3)
 
 /* Memory map */
-#define AUDIO_DATA_BASE		(0xA0600000)	/* MPEG Audio Decoder Memory */
-#define AUDIO_DATA_SIZE		(0x00200000)	/* 6-8MB of the second memory bank */
+#define AUDIO_DATA_BASE		(0xA0600000UL)	/* MPEG Audio Decoder Memory */
+#define AUDIO_DATA_SIZE		(0x200000UL)	/* 6-8MB of the second memory bank */
 
 /* Segment 1 */
 #define AUDIO_DAB1_OFFSET	(0x00000000)

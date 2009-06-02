@@ -97,33 +97,34 @@ struct stbx25xx_clip_dev {
 	/* Memory */
 	void *memory;
 	size_t size;
+	phys_addr_t phys;
 
 	/* Registers */
 	unsigned int qar;
 	unsigned int qlr;
 
 	/* Buffer queue */
-	unsigned int *buf_queue;
-	unsigned int buf_r;
-	unsigned int buf_w;
+	volatile unsigned int *buf_queue;
+	volatile unsigned int buf_r;
+	volatile unsigned int buf_w;
 	unsigned int buf_num;
-	unsigned int buf_full;
+	volatile unsigned int buf_full;
 	wait_queue_head_t buf_wait;
 
 	/* Clip queue */
-	unsigned int *clip_queue;
-	unsigned int clip_r;
-	unsigned int clip_w;
+	volatile unsigned int *clip_queue;
+	volatile unsigned int clip_r;
+	volatile unsigned int clip_w;
 	unsigned int clip_num;
-	unsigned int clip_full;
+	volatile unsigned int clip_full;
 	wait_queue_head_t clip_wait;
 
 	/* Kernel thread */
 	struct task_struct *thread;
 	wait_queue_head_t done;
-	unsigned int cur_clips[2];
-	unsigned int cur_w;
-	unsigned int cur_r;
+	volatile unsigned int cur_clips[2];
+	volatile unsigned int cur_w;
+	volatile unsigned int cur_r;
 };
 
 struct stbx25xx_audio_data {
