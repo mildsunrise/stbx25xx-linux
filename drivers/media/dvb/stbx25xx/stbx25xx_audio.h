@@ -51,7 +51,7 @@
 #define AUDIO_CLIP_OFFSET	(AUDIO_PTS_OFFSET + AUDIO_PTS_SIZE)
 #define AUDIO_CLIP_SIZE		(AUDIO_DATA_SIZE - AUDIO_CLIP_OFFSET)
 #define AUDIO_CLIP_ADDR		(AUDIO_DATA_BASE + AUDIO_CLIP_OFFSET)
-#define AUDIO_CLIP_BLOCK_SIZE	(0x10000UL)
+#define AUDIO_CLIP_BLOCK_SIZE	(0x8000UL)
 #define AUDIO_ALIGNMENT_MASK	((2 * AUDIO_CLIP_BLOCK_SIZE) - 1)
 
 #if (AUDIO_CLIP_BLOCK_SIZE & ~PAGE_MASK)
@@ -116,6 +116,9 @@
 #define AUDIO_ADD_IRQ		(27)
 #define AUDIO_CM2_IRQ		(30)
 #define AUDIO_CM_IRQ		(31)
+
+/* IOCTLs */
+#define STB_AUD_TONEGEN		_IO('o', 64)
 
 /* Register accessors */
 #define set_audio_reg(reg, val) \

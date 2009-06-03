@@ -2374,25 +2374,25 @@ static void demux_frontend_irq_handler(struct stbx25xx_demux_data *dmx, int irq)
 	set_demux_reg(FESTAT, reg);
 	
 	if(reg.festat.tshe)
-		warn("TS Header Error!");
+		info("Demux IRQ: Frontend - TS Header Error");
 	
 	if(reg.festat.pbo)
-		warn("Packet Buffer Overflow!");
+		info("Demux IRQ: Frontend - Packet Buffer Overflow");
 	
 	if(reg.festat.tse)
-		warn("Transport Stream Error!");
+		info("Demux IRQ: Frontend - Transport Stream Error");
 	
 	if(reg.festat.vpo)
-		warn("Video Packet Overflow!");
+		info("Demux IRQ: Frontend - Video Packet Overflow");
 	
 	if(reg.festat.apo)
-		warn("Audio Packet Overflow!");
+		info("Demux IRQ: Frontend - Audio Packet Overflow");
 	
 	if(reg.festat.qpo)
-		warn("Queue Packet Overflow!");
+		info("Demux IRQ: Frontend - Queue Packet Overflow");
 	
 	if(reg.festat.mpfm)
-		warn("Multiple PID Filter Matches!");
+		info("Demux IRQ: Frontend - Multiple PID Filter Matches");
 }
 
 /*
@@ -2403,7 +2403,7 @@ static void demux_frontend_irq_handler(struct stbx25xx_demux_data *dmx, int irq)
  */
 static void demux_plb_err_handler(struct stbx25xx_demux_data *dmx, int irq)
 {
-	warn("Demux PLB Error!");
+	info("Demux IRQ: PLB Error");
 }
 
 /*

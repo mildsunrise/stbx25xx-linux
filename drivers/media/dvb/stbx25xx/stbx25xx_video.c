@@ -1315,7 +1315,7 @@ int stbx25xx_video_release(struct inode *inode, struct file *file)
 		video_empty_buffers(vid);
 		video_hide();
 		video_stop(vid);
-		video_set_source(vid, VIDEO_SOURCE_MEMORY);
+		video_set_source(vid, VIDEO_SOURCE_DEMUX);
 //		video_vrb_reset(0);
 		video_stop_proc();
 	}
@@ -1548,7 +1548,7 @@ int stbx25xx_video_init(struct stbx25xx_dvb_data *dvb)
 #endif
 
 	video_init_procfs();
-	video_set_source(vid, VIDEO_SOURCE_MEMORY);
+	video_set_source(vid, vid->state.stream_source);
 	
 	video_restart_proc();
 	video_update_hw_config(vid);

@@ -31,6 +31,9 @@ typedef union {
 		unsigned	:2;
 		unsigned md	:1;
 		unsigned ei	:1;
+#define AUD_TYPE_ES	1
+#define AUD_TYPE_PES	2
+#define AUD_TYPE_MPEG1	3
 		unsigned type	:2;
 	} ctrl0;
 	
