@@ -119,6 +119,11 @@
 
 /* IOCTLs */
 #define STB_AUD_TONEGEN		_IO('o', 64)
+#define STB_AUD_GET_STATUS	_IOR('o', 65, unsigned long[16])
+
+/* Misc */
+#define STREAM_ID_PES		(0xe0c0)
+#define STREAM_ID_AC3		(0xffbd)
 
 /* Register accessors */
 #define set_audio_reg(reg, val) \

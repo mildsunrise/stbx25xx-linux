@@ -101,6 +101,26 @@ static char *irq_name[STBx25xx_VIDEO_IRQ_COUNT] = {
 	"OSD data",
 };
 
+static void video_enable_irq(unsigned int irq)
+{
+	unsigned long flags;
+	
+	local_irq_save(flags);
+	video_int_mask |= 1 << (31 - irq);
+	set_video_reg_raw(MASK, video_int_mask);
+	local_irq_restore(flags);
+}
+
+static void video_disable_irq(unsigned int irq)
+{
+	unsigned long flags;
+	
+	local_irq_save(flags);
+	video_int_mask &= ~(1 << (31 - irq));
+	set_video_reg_raw(MASK, video_int_mask);
+	local_irq_restore(flags);
+}
+
 static irqreturn_t video_interrupt(int irq, void *data)
 {
 	struct stbx25xx_video_data *vid = data;
@@ -554,15 +574,30 @@ static void video_enable_sync(int master)
 	reg.video_cntl.vmsm = (master == VIDEO_SYNC_VMASTER);
 	reg.video_cntl.amsm = (master == VIDEO_SYNC_AMASTER);
 	set_video_reg(VIDEO_CNTL, reg);
+	
+	if(master == VIDEO_SYNC_VMASTER)
+		video_enable_irq(VIDEO_STC_IRQ);
 }
 
 static void video_disable_sync(void)
 {
 	stbx25xx_video_val reg;
 	
+	video_disable_irq(VIDEO_STC_IRQ);
+	
 	reg = get_video_reg(VIDEO_CNTL);
 	reg.video_cntl.ds = 1;
 	set_video_reg(VIDEO_CNTL, reg);
+}
+
+static void video_stc_ready_handler(struct stbx25xx_video_data *vid, int irq)
+{
+	unsigned int stchi, stclo;
+	
+	stchi = get_video_reg_raw(SYNC_STC0);
+	stclo = get_video_reg_raw(SYNC_STC1);
+	
+	stbx25xx_audio_sync_stc(stclo, stchi);
 }
 
 static int video_play(struct stbx25xx_video_data *vid)
@@ -623,7 +658,7 @@ static int video_clip_free(struct stbx25xx_video_data *vid)
 	return ret;
 }
 
-static int video_clip_queue(struct stbx25xx_video_data *vid, const char *buf, size_t count, int nonblocking)
+static int video_clip_queue(struct stbx25xx_video_data *vid, const char *buf, size_t count, int nonblocking, int user)
 {
 	size_t size, sent;
 	stbx25xx_video_val reg;
@@ -674,7 +709,10 @@ static int video_clip_queue(struct stbx25xx_video_data *vid, const char *buf, si
 		
 		if(nonblocking)
 #endif
-		memcpy(vid->clip_data[vid->clip_wptr], &buf[sent], size);
+		if(user)
+			copy_from_user(vid->clip_data[vid->clip_wptr], &buf[sent], size);
+		else
+			memcpy(vid->clip_data[vid->clip_wptr], &buf[sent], size);
 		
 		local_irq_save(flags);
 		vid->clip_busy[vid->clip_wptr] = 1;
@@ -830,7 +868,7 @@ static int video_stillpicture(struct stbx25xx_video_data *vid, struct video_stil
 	
 	video_install_int_handler(VIDEO_SEND_IRQ, video_still_interrupt);
 	
-	video_clip_queue(vid, clip_data, pic->size + 128, 0);
+	video_clip_queue(vid, clip_data, pic->size + 128, 0, 0);
 	wait_for_completion(&vid->still_done);
 	
 	kfree(clip_data);
@@ -1203,7 +1241,7 @@ ssize_t stbx25xx_video_write(struct file *file, const char *buf, size_t count, l
 		(vid->state.stream_source != VIDEO_SOURCE_MEMORY))
 			return -EPERM;
 
-	return video_clip_queue(vid, buf, count, file->f_flags & O_NONBLOCK);
+	return video_clip_queue(vid, buf, count, file->f_flags & O_NONBLOCK, 1);
 }
 
 int stbx25xx_video_open(struct inode *inode, struct file *file)
@@ -1523,6 +1561,8 @@ int stbx25xx_video_init(struct stbx25xx_dvb_data *dvb)
 	
 	for(i = 0; i < STBx25xx_VIDEO_IRQ_COUNT; i++)
 		video_install_int_handler(i, dummy_int_handler);
+	
+	video_install_int_handler(VIDEO_STC_IRQ, video_stc_ready_handler);
 	
 	video_init_hw(vid);
 	

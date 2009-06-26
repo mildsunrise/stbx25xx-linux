@@ -122,6 +122,7 @@ struct stbx25xx_clip_dev {
 	/* Kernel thread */
 	struct task_struct *thread;
 	wait_queue_head_t done;
+	wait_queue_head_t flushed;
 	volatile unsigned int cur_clips[2];
 	volatile unsigned int cur_w;
 	volatile unsigned int cur_r;
