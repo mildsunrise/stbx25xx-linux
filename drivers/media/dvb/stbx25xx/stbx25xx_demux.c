@@ -1807,10 +1807,10 @@ static void demux_sync_av(struct stbx25xx_demux_data *dmx, int irq)
 	if(demux_get_stc_for_sync(&stc_high))
 		return;
 	
-	info("Updating A/V STC with PCR 0x%08x\n", stc_high);
+	info("Updating A/V STC with PCR 0x%08x0", stc_high);
 	
-	stbx25xx_video_sync_stc(0, stc_high + DECODER_SHIFT);
 	stbx25xx_audio_sync_stc(0, stc_high + DECODER_SHIFT);
+	stbx25xx_video_sync_stc(0, stc_high + DECODER_SHIFT);
 	
 //	printk("Video sync => %d\n", stc_high);
 }
@@ -2020,7 +2020,7 @@ static void demux_pcr_sync_start(struct stbx25xx_demux_data *dmx)
 {
 	unsigned long flags;
 	
-	demux_sync_av(dmx, DEMUX_IRQ_PCR);
+//	demux_sync_av(dmx, DEMUX_IRQ_PCR);
 	
 	local_irq_save(flags);
 	
@@ -2037,7 +2037,7 @@ static void demux_pcr_sync_stop(struct stbx25xx_demux_data *dmx)
 {
 	unsigned long flags;
 	
-	stbx25xx_video_disable_sync();
+//	stbx25xx_video_disable_sync();
 	
 	local_irq_save(flags);
 	
@@ -2609,10 +2609,9 @@ int stbx25xx_demux_start_feed(struct dvb_demux_feed *feed)
 				return demux_video_channel_change(feed->pid);
 			
 			if(feed->pes_type == DMX_TS_PES_PCR) {
-				demux_pcr_sync_stop(dmx);
-				demux_set_pcr_pid(feed->pid);
 				dmx->XpClkNpcrs = 0;
 				demux_pcr_sync_start(dmx);
+				demux_set_pcr_pid(feed->pid);
 				return 0;
 			}
 			

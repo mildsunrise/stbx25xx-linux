@@ -217,6 +217,7 @@ extern unsigned int stbx25xx_video_poll(struct file *file, poll_table *wait);
 extern int stbx25xx_video_ioctl(struct inode *inode, struct file *file, unsigned int cmd, void *parg);
 extern void stbx25xx_video_sync_stc(u32 stcl, u32 stch);
 extern void stbx25xx_video_disable_sync(void);
+extern void stbx25xx_video_enable_sync(void);
 
 extern ssize_t stbx25xx_audio_write(struct file *file, const char *buf, size_t count, loff_t *ppos);
 extern int stbx25xx_audio_open(struct inode *inode, struct file *file);

@@ -529,51 +529,76 @@ static int video_set_system(struct stbx25xx_video_data *vid, video_system_t sys)
 
 static void video_show(void)
 {
+	unsigned long flags;
 	stbx25xx_video_val reg;
+	
+	local_irq_save(flags);
 	
 	reg = get_video_reg(VIDEO_CNTL);
 	reg.video_cntl.ev = 1;
 	set_video_reg(VIDEO_CNTL, reg);
+	
+	local_irq_restore(flags);
 }
 
 static void video_hide(void)
 {
+	unsigned long flags;
 	stbx25xx_video_val reg;
+	
+	local_irq_save(flags);
 	
 	reg = get_video_reg(VIDEO_CNTL);
 	reg.video_cntl.ev = 0;
 	set_video_reg(VIDEO_CNTL, reg);
+	
+	local_irq_restore(flags);
 }
 
 static void video_start_decoding(void)
 {
+	unsigned long flags;
 	stbx25xx_video_val reg;
+	
+	local_irq_save(flags);
 	
 	reg = get_video_reg(VIDEO_CNTL);
 	reg.video_cntl.svd = 1;
 	set_video_reg(VIDEO_CNTL, reg);
+	
+	local_irq_restore(flags);
 }
 
 static void video_stop_decoding(void)
 {
+	unsigned long flags;
 	stbx25xx_video_val reg;
+	
+	local_irq_save(flags);
 	
 	reg = get_video_reg(VIDEO_CNTL);
 	reg.video_cntl.svd = 0;
 	set_video_reg(VIDEO_CNTL, reg);
+	
+	local_irq_restore(flags);
 }
 
 #define VIDEO_SYNC_AMASTER	0
 #define VIDEO_SYNC_VMASTER	1
 static void video_enable_sync(int master)
 {
+	unsigned long flags;
 	stbx25xx_video_val reg;
 	
+	local_irq_save(flags);
+	
 	reg = get_video_reg(VIDEO_CNTL);
-	reg.video_cntl.ds = 0;
 	reg.video_cntl.vmsm = (master == VIDEO_SYNC_VMASTER);
 	reg.video_cntl.amsm = (master == VIDEO_SYNC_AMASTER);
+	reg.video_cntl.ds = 0;
 	set_video_reg(VIDEO_CNTL, reg);
+	
+	local_irq_restore(flags);
 	
 	if(master == VIDEO_SYNC_VMASTER)
 		video_enable_irq(VIDEO_STC_IRQ);
@@ -581,13 +606,18 @@ static void video_enable_sync(int master)
 
 static void video_disable_sync(void)
 {
+	unsigned long flags;
 	stbx25xx_video_val reg;
 	
 	video_disable_irq(VIDEO_STC_IRQ);
 	
+	local_irq_save(flags);
+	
 	reg = get_video_reg(VIDEO_CNTL);
 	reg.video_cntl.ds = 1;
 	set_video_reg(VIDEO_CNTL, reg);
+	
+	local_irq_restore(flags);
 }
 
 static void video_stc_ready_handler(struct stbx25xx_video_data *vid, int irq)
@@ -1133,8 +1163,12 @@ static void video_deinit_procfs(void)
 */
 void stbx25xx_video_sync_stc(u32 stcl, u32 stch)
 {
-	set_video_reg_raw(SYNC_STC1, stcl);
+	set_video_reg_raw(SYNC_STC1, (stcl & 0x1) << 9);
 	set_video_reg_raw(SYNC_STC0, stch);
+}
+
+void stbx25xx_video_enable_sync(void)
+{
 	video_enable_sync(VIDEO_SYNC_VMASTER);
 }
 

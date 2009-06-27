@@ -566,6 +566,11 @@ static int audio_set_sync(struct stbx25xx_audio_data *aud, int sync)
 	reg = get_audio_reg(AUD_CTRL0);
 	reg.ctrl0.as = !!sync;
 	set_audio_reg(AUD_CTRL0, reg);
+	
+	if(!!sync)
+		stbx25xx_video_enable_sync();
+	else
+		stbx25xx_video_disable_sync();
 
 	aud->state.AV_sync_state = !!sync;
 
@@ -1080,9 +1085,9 @@ void stbx25xx_audio_sync_stc(u32 stcl, u32 stch)
 			get_audio_reg_raw(AUD_STC);
 	} while(reg.dsr.hv);
 	
-	set_audio_reg_raw(AUD_STC, stch & 0xffff);
-	set_audio_reg_raw(AUD_STC, stch >> 16);
-	set_audio_reg_raw(AUD_STC, (stcl >> 9) & 0x1);
+	set_audio_reg_raw(AUD_STC, ((stch << 1) & 0xfffe) | (stcl & 0x1));
+	set_audio_reg_raw(AUD_STC, (stch >> 15) & 0xffff);
+	set_audio_reg_raw(AUD_STC, (stch >> 31) & 0x1);
 }
 
 ssize_t stbx25xx_audio_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
