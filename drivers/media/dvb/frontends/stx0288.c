@@ -47,6 +47,7 @@ struct stx0288_state {
 	int errmode;
 	u32 master_clock;
 	u32 mclk_div;
+	u32 ucblocks;
 };
 
 #define STATUS_BER 0
@@ -432,33 +433,134 @@ static int stx0288_read_status(struct dvb_frontend *fe, fe_status_t *status)
 	return 0;
 }
 
+#if 0
 static int stx0288_read_ber(struct dvb_frontend *fe, u32 *ber)
 {
 	struct stx0288_state *state = fe->demodulator_priv;
 
-	if (state->errmode != STATUS_BER)
-		return 0;
-	*ber = (stx0288_readreg(state, 0x26) << 8) |
-					stx0288_readreg(state, 0x27);
+	*ber = (stx0288_readreg(state, R288_ECNTM) << 8) |
+		stx0288_readreg(state, R288_ECNTL);
+
+	*ber = (stx0288_readreg(state, R288_ECNTM) << 8) |
+		stx0288_readreg(state, R288_ECNTL);
+					
 	dprintk("stx0288_read_ber %d\n", *ber);
 
 	return 0;
 }
+#endif
 
+static inline u16 stx0288_get_error_count(struct stx0288_state *state)
+{
+	u16 err;
+
+	err = stx0288_readreg(state, R288_ECNTM) << 8;
+	err |= stx0288_readreg(state, R288_ECNTL);
+
+	return err;
+}
+
+static int stx0288_read_ber(struct dvb_frontend *fe, u32 *berval)
+{
+	u32 ber = 0,i;
+	struct stx0288_state *state = fe->demodulator_priv;
+	u8 vstatus = stx0288_readreg(state, R288_VSTATUS);
+	u8 errctrl = stx0288_readreg(state, R288_ERRCTRL);
+	u8 fecm = stx0288_readreg(state, R288_FECM);
+
+	stx0288_get_error_count(state); /* remove first counter value */
+	/* Average 5 ber values */
+	ber = stx0288_get_error_count(state);
+	
+	/*	Check for carrier	*/
+	if(vstatus & 0x80) {
+		if(!(errctrl & 0x80)) {
+			/*	Error Rate	*/
+			ber *= 9766;
+			/*  theses two lines => ber = ber * 10^7	*/
+			ber /= (u32)(1 << (2 + 2 * (errctrl & 0x03)));
+
+			switch(vstatus & 0x30) {
+			case 0x00 :				/*	QPSK bit errors	*/
+				ber /= 8;
+
+				switch(vstatus & 0x07) {
+				case	0x00:		/*	PR 1/2	*/
+					ber *= 1;
+					ber /= 2;
+					break;
+
+				case	0x01:		/*	PR 2/3	*/
+					ber *= 2;
+					ber /= 3;
+					break;
+
+				case	0x02:		/*	PR 3/4	*/
+					ber *= 3;
+					ber /= 4;
+				break;
+
+				case	0x03:		/*	PR 5/6	*/
+					ber *= 5;
+					ber /= 6;
+					break	;
+
+				case	0x04:		/*	PR 6/7	*/
+					ber *= 6;
+					ber /= 7;
+					break;
+
+				case	0x05:		/*	PR 7/8	*/
+					ber *= 7;
+					ber /= 8;
+					break;
+
+				default	:
+					ber = 0;
+					break;
+				}
+				break;
+
+			case 0x10:		/*	Viterbi bit errors	*/
+				ber /= 8;
+				break;
+
+			case 0x20:		/*	Viterbi	byte errors	*/
+				break;
+
+			case 0x30:		/*	Packet errors	*/
+				if((fecm >> 4) != 0x04)
+					ber *= 204;	/* DVB */
+				else
+					ber *= 147; /* DirecTV */
+				break;
+			}
+		}
+	}
+
+	*berval = ber;
+
+	dprintk("stx0288_read_ber %d\n", *berval);
+
+	return 0;
+}
 
 static int stx0288_read_signal_strength(struct dvb_frontend *fe, u16 *strength)
 {
 	struct stx0288_state *state = fe->demodulator_priv;
+	s32 agc_gain;
 
-	s32 signal =  0xffff - ((stx0288_readreg(state, 0x10) << 8));
+	agc_gain = (s8)stx0288_readreg(state, R288_AGC1IN);
+	agc_gain += 128;
+	agc_gain *= 256;
 
-
-	signal = signal * 5 / 4;
-	*strength = (signal > 0xffff) ? 0xffff : (signal < 0) ? 0 : signal;
+	*strength = (agc_gain > 0xffff) ? 0xffff : (agc_gain < 0) ? 0 : agc_gain;
+	
 	dprintk("stx0288_read_signal_strength %d\n", *strength);
 
 	return 0;
 }
+
 static int stx0288_sleep(struct dvb_frontend *fe)
 {
 	struct stx0288_state *state = fe->demodulator_priv;
@@ -468,14 +570,24 @@ static int stx0288_sleep(struct dvb_frontend *fe)
 
 	return 0;
 }
+
 static int stx0288_read_snr(struct dvb_frontend *fe, u16 *snr)
 {
 	struct stx0288_state *state = fe->demodulator_priv;
 
-	s32 xsnr = 0xffff - ((stx0288_readreg(state, R288_NIRM) << 8)
-			   | stx0288_readreg(state, R288_NIRL));
-	xsnr = 3 * (xsnr - 0xa100);
-	*snr = (xsnr > 0xffff) ? 0xffff : (xsnr < 0) ? 0 : xsnr;
+	s32 xsnr;
+
+	if(stx0288_readreg(state, R288_VSTATUS) & F288_CF) {
+		xsnr = 0xffff - ((stx0288_readreg(state, R288_NIRM) << 8)
+			| stx0288_readreg(state, R288_NIRL));
+
+		xsnr = 3 * (xsnr - 0xa100);
+
+		*snr = (xsnr > 0xffff) ? 0xffff : (xsnr < 0) ? 0 : xsnr;
+	} else {
+		*snr = 0;
+	}
+
 	dprintk("stx0288_read_snr %d\n", *snr);
 
 	return 0;
@@ -484,12 +596,25 @@ static int stx0288_read_snr(struct dvb_frontend *fe, u16 *snr)
 static int stx0288_read_ucblocks(struct dvb_frontend *fe, u32 *ucblocks)
 {
 	struct stx0288_state *state = fe->demodulator_priv;
+	u8 mode;
 
-	if (state->errmode != STATUS_BER)
+	if(state->errmode != STATUS_UCBLOCKS)
 		return 0;
-	*ucblocks = (stx0288_readreg(state, 0x26) << 8) |
-					stx0288_readreg(state, 0x27);
-	dprintk("stx0288_read_ber %d\n", *ucblocks);
+
+	mode = stx0288_readreg(state, R288_ERRCTRL);
+	stx0288_writeregI(state, R288_ERRCTRL, 0x80);
+
+	stx0288_readreg(state, R288_ECNTM);
+	stx0288_readreg(state, R288_ECNTL);
+
+	state->ucblocks += (stx0288_readreg(state, R288_ECNTM) << 8) |
+			stx0288_readreg(state, R288_ECNTL);
+
+	stx0288_writeregI(state, R288_ERRCTRL, mode);
+
+	*ucblocks = state->ucblocks;
+			
+	dprintk("stx0288_read_ucblocks %d\n", *ucblocks);
 
 	return 0;
 }
@@ -739,6 +864,7 @@ static int stx0288_tune(struct dvb_frontend* fe,
 	state->tuner_frequency = c->frequency;
 	state->fec_inner = FEC_AUTO;
 	state->symbol_rate = c->u.qpsk.symbol_rate;
+	state->ucblocks = 0;
 	
 get_status:
 	if (!(mode_flags & FE_TUNE_MODE_ONESHOT))
