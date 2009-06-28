@@ -19,10 +19,14 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/* Uncommend the following lines to show debugging messages */
 /*
 #define DEBUG	10
 #define DBG_LEVEL 1
 */
+
+/* Comment out the following line to enable hardware section filtering */
+#define STBx25xx_SW_SECT_FILT
 
 #include <linux/interrupt.h>
 #include <linux/spinlock.h>
@@ -815,15 +819,14 @@ static void demux_process_queue_irq(int num, u32 stat)
 		warn("%s: Queue %d Read Pointer Interrupt (stopped to avoid overflow)\n", __func__, num);
 	/* TODO: Handle the RPI */
 	
-	if(stat & QUEUE_FP) {
+	if(stat & QUEUE_FP)
 		queue->state = QUEUE_STATE_ACTIVE;
-	}
 
-	if((stat & QUEUE_PCSC) || (stat & QUEUE_BTI)) {
-//		dprintk("%s: Queuing queue %d work\n", __func__, num);
-		if(queue->state == QUEUE_STATE_ACTIVE)
+	if((stat & QUEUE_PCSC) || (stat & QUEUE_BTI))
+		if(queue->state == QUEUE_STATE_ACTIVE) {
+			dprintk("%s: Queuing queue %d work\n", __func__, num);
 			queue_work(queue->dmx->workqueue, &queue->work);
-	}
+		}
 }
 
 /*
@@ -985,6 +988,8 @@ static void demux_get_data(struct work_struct *work)
 	size_t data_avl, data_avl2, data_read = 0;
 	unsigned long flags;
 
+	dprintk("%s: Processing queue %d\n", __func__, queue->handle);
+
 	read_ptr = queue_to_phys(queue, queue->ptr);
 	write_ptr = demux_get_write_ptr(queue);
 
@@ -1013,6 +1018,7 @@ static void demux_get_data(struct work_struct *work)
 
 	/* Check if there is data ready in the queue */
 	if(data_avl) {
+		dprintk("%s: Queue %d: %d + %d bytes available\n", __func__, queue->handle, data_avl, data_avl2);
 		/* Data available, so get it */
 		if(queue->cb)
 			data_read = queue->cb(queue, queue->ptr, data_avl, queue->addr, data_avl2);
@@ -1167,7 +1173,7 @@ static int demux_install_queue(int qid, u32 pid, u32 blocks, u16 config, u16 key
 			goto exit;
 		}
 		
-		dprintk("%s: Allocated queue %d to 0x%08x mapped at %p\n", __func__, queue, queue->phys_addr, queue->addr);
+		dprintk("%s: Allocated queue %d to 0x%08x mapped at %p\n", __func__, qid, queue->phys_addr, queue->addr);
 	}
 		
 	queue->size		= blocks * DEMUX_QUEUE_BLOCK_SIZE;
@@ -1347,7 +1353,7 @@ static int demux_init_queues(struct stbx25xx_demux_data *dmx)
 	demux_enable_irq(DEMUX_IRQ_VCCHNG_DONE);
 		
 	demux_set_queues_base_ptr(DEMUX_QUEUES_BASE);
-	demux_unmask_qstat_irq(QUEUE_RPI | QUEUE_PCSC);
+	demux_unmask_qstat_irq(QUEUE_RPI | QUEUE_PCSC | QUEUE_FP);
 	
 	demux_install_system_queue(DEMUX_AUDIO_QUEUE, 0x1FFF, 0, 0);
 	demux_install_system_queue(DEMUX_VIDEO_QUEUE, 0x1FFF, 0, 0);
@@ -1495,10 +1501,7 @@ found:
 		ret = -EINVAL;
 		goto exit;
 	}
-	
-/*
-#define STBx25xx_SW_SECT_FILT
-*/
+
 #ifdef STBx25xx_SW_SECT_FILT
 	
 	feed->priv = NULL;
@@ -2419,7 +2422,7 @@ static void demux_queues_irq_handler(struct stbx25xx_demux_data *dmx, int irq)
 	u32 mask = get_demux_reg_raw(QINT) & demux_queues_irq_mask;
 	set_demux_reg_raw(QINT, mask);
 	
-//	dprintk("%s: demux_queues_irq_mask = 0x%08x\n", __func__, demux_queues_irq_mask);
+	dprintk("%s: demux_queues_irq_mask = 0x%08x\n", __func__, demux_queues_irq_mask);
 	
 	for(i=STBx25xx_QUEUE_COUNT-1; i>=0 && mask; i--, mask>>=1) {
 		if(mask & 1) {
