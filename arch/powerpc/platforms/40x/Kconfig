@@ -195,6 +195,14 @@ config TGS230
 	help
 	  This option enables support for the iTgate TGS230 STB.
 	  
+config DM500
+	bool "Dreambox DM500"
+	depends on 40x
+	default n
+	select STBx25xx
+	help
+	  This option enables support for the Dreambox DM500.
+
 
 #config SYCAMORE
 #	bool "Sycamore"

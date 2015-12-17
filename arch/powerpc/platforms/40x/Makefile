@@ -21,3 +21,4 @@ obj-$(CONFIG_TGS210)				+= tgs210.o
 obj-$(CONFIG_TGS220)				+= tgs220.o
 obj-$(CONFIG_TGS221)				+= tgs221.o
 obj-$(CONFIG_TGS230)				+= tgs230.o
+obj-$(CONFIG_DM500)				+= dm500.o
