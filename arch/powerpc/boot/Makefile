@@ -64,7 +64,7 @@ src-wlib := string.S crt0.S crtsavres.S stdio.c main.c \
 src-plat := of.c cuboot-52xx.c cuboot-824x.c cuboot-83xx.c cuboot-85xx.c holly.c \
 		cuboot-ebony.c treeboot-ebony.c prpmc2800.c \
 		ps3-head.S ps3-hvcall.S ps3.c treeboot-bamboo.c cuboot-8xx.c \
-		cuboot-pq2.c cuboot-sequoia.c treeboot-walnut.c \
+		cuboot-pq2.c cuboot-sequoia.c treeboot-walnut.c treeboot-dm500.c \
 		cuboot-bamboo.c cuboot-mpc7448hpc2.c cuboot-taishan.c \
 		fixed-head.S ep88xc.c ep405.c cuboot-c2k.c \
 		cuboot-katmai.c cuboot-rainier.c redboot-8xx.c ep8248e.c \
@@ -217,6 +217,7 @@ image-$(CONFIG_ACADIA)			+= cuImage.acadia
 image-$(CONFIG_TM9101)			+= cuImage.tm9101
 image-$(CONFIG_IP350)			+= cuImage.ip350
 image-$(CONFIG_IP400)			+= cuImage.ip400
+image-$(CONFIG_DM500)			+= treeImage.dm500
 
 # Board ports in arch/powerpc/platform/44x/Kconfig
 image-$(CONFIG_EBONY)			+= treeImage.ebony cuImage.ebony

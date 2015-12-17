@@ -1,0 +1,133 @@
+/*
+ * Device Tree Source for Dreambox DM500 S/C/T
+ *
+ * Copyright 2015 Alba Mendez
+ *
+ *
+ * This file is licensed under the terms of the GNU General Public
+ * License version 2.  This program is licensed "as is" without
+ * any warranty of any kind, whether express or implied.
+ */
+
+/dts-v1/;
+
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+	platform = "IBM STBx25xx";
+	model = "Dreambox DM500";
+	compatible = "ibm,stbx25xx", "dreambox,dm500";
+	dcr-parent = <&{/cpus/cpu@0}>;
+
+	aliases {
+		serial0 = &UART0;
+		serial1 = &UART1;
+		serial2 = &UART2;
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu@0 {
+			device_type = "cpu";
+			model = "PowerPC,STBx25xx";
+			reg = <0x00000000>;
+			clock-frequency = <252000000>; /* Filled in by zImage */
+			timebase-frequency = <27000000>; /* Filled in by zImage */
+			i-cache-line-size = <32>;
+			d-cache-line-size = <32>;
+			i-cache-size = <16384>;
+			d-cache-size = <16384>;
+			dcr-controller;
+			dcr-access-method = "native";
+		};
+	};
+
+	memory {
+		device_type = "memory";
+		reg = <0x00000000 0x02000000>; /* 32 MB */
+	};
+
+	UIC0: interrupt-controller {
+		compatible = "ibm,uic";
+		interrupt-controller;
+		cell-index = <0>;
+		dcr-reg = <0x040 0x009>;
+		#address-cells = <0>;
+		#size-cells = <0>;
+		#interrupt-cells = <2>;
+	};
+
+	plb {
+		compatible = "ibm,plb3";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+		clock-frequency = <63000000>; /* Filled in by zImage */
+
+		POB0: opb {
+			compatible = "ibm,opb-stbx25xx", "ibm,opb";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0 0x40000000 0x00100000>;
+			dcr-reg = <0x054 0x013 0x0b0 0x003>;
+			clock-frequency = <63000000>; /* Filled in by zImage */
+
+			UART0: serial@40000 {
+				device_type = "serial";
+				compatible = "ns16550";
+				reg = <0x40000 0x8>;
+				clock-frequency = <21000000>; /* Filled in by zImage */
+				interrupt-parent = <&UIC0>;
+				interrupts = <20 4>;
+			};
+
+			UART1: serial@00000 {
+				device_type = "serial";
+				compatible = "ns16550";
+				reg = <0x00000 0x8>;
+				clock-frequency = <21000000>; /* Filled in by zImage */
+				interrupt-parent = <&UIC0>;
+				interrupts = <21 4>;
+			};
+			
+			UART2: serial@10000 {
+				device_type = "serial";
+				compatible = "ns16550";
+				reg = <0x10000 0x8>;
+				clock-frequency = <21000000>; /* Filled in by zImage */
+				current-speed = <115200>;
+				interrupt-parent = <&UIC0>;
+				interrupts = <22 4>;
+			};
+
+			IIC: i2c@30000 {
+				compatible = "ibm,iic-stbx25xx";
+				reg = <0x30000 0x10>;
+				interrupt-parent = <&UIC0>;
+				interrupts = <9 4>;
+			};
+
+			GPIO: gpio@60000 {
+				compatible = "ibm,ppc4xx-gpio";
+				reg = <0x60000 0x20>;
+			};
+			
+		};
+
+		EBC0: ebc {
+			compatible = "ibm,ebc-stbx25xx", "ibm,ebc";
+			dcr-reg = <0x070 0x02b>;
+			#address-cells = <2>;
+			#size-cells = <1>;
+			ranges = <0 0 0xf2000000 0x1000>; /* FIXME */
+			clock-frequency = <63000000>; /* Filled in by zImage */
+
+		};
+	};
+
+	chosen {
+		linux,stdout-path = "/plb/opb/serial@40000";
+	};
+};
