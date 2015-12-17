@@ -1617,7 +1617,7 @@ int stbx25xx_video_init(struct stbx25xx_dvb_data *dvb)
 
 	video_init_mem_pointers(vid);
 		
-#if defined(CONFIG_FB) || defined(CONFIG_FB_MODULE)
+#if defined(CONFIG_DVB_STBx25xx_OSD)
 	stbx25xx_osd_init(dvb);
 #endif
 
@@ -1645,7 +1645,7 @@ void stbx25xx_video_exit(struct stbx25xx_dvb_data *dvb)
 
 	video_deinit_procfs();
 
-#if defined(CONFIG_FB) || defined(CONFIG_FB_MODULE)
+#if defined(CONFIG_DVB_STBx25xx_OSD)
 	stbx25xx_osd_exit(dvb);
 #endif
 	

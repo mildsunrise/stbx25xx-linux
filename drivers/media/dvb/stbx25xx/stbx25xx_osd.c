@@ -8,8 +8,6 @@
  *  more details.
  */
 
-#if defined(CONFIG_FB) || defined(CONFIG_FB_MODULE)
-
 /*
 #define DEBUG		10
 #define DBG_LEVEL	1
@@ -610,5 +608,3 @@ void stbx25xx_osd_exit(struct stbx25xx_dvb_data *dvb)
 		}
 	}
 }
-
-#endif

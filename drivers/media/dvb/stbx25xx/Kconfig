@@ -1,15 +1,42 @@
 config DVB_STBx25xx
+	default m
 	tristate "IBM STBx25xx on-chip DVB subsystem"
 	depends on DVB_CORE && STBx25xx
 	select DVB_STV0288 if !DVB_FE_CUSTOMISE
 	select I2C
 	select I2C_STBx25xx
-	select FB_CFB_FILLRECT
-	select FB_CFB_COPYAREA
-	select FB_CFB_IMAGEBLIT
 	help
 	  Support for the digital TV receiver hardware included in
 	  IBM STBx25xx System-On-Chip.
 
 	  Say Y if you own such a device and want to use it.
 
+config DVB_STBx25xx_AV
+	default y
+	bool "IBM STBx25xx on-chip A/V decoders"
+	depends on DVB_STBx25xx
+	select FW_LOADER
+	help
+	  Support for the audio and video (MPEG-2) decoders on the
+	  IBM STBx25xx System-On-Chip.
+
+	  Note: these require three firmware blobs, which are not
+	  distributed with the kernel. Say M on DVB_STBx25xx if you
+	  select this.
+
+config DVB_STBx25xx_OSD
+	default y
+	bool "IBM STBx25xx OSD (framebuffer)"
+	depends on DVB_STBx25xx_AV && (FB || FB_MODULE)
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	help
+	  Support for the IBM STBx25xx on-chip framebuffer.
+
+config STBx25xx_NTSC
+	default n
+	bool "IBM STBx25xx NTSC output"
+	depends on DVB_STBx25xx_OSD
+	help
+	  Say Y here if the output should be in NTSC instead of PAL.

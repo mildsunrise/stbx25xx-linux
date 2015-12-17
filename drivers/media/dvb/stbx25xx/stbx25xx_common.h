@@ -37,6 +37,8 @@
 #undef warn
 #define warn(format, arg...) printk(KERN_WARNING STBx25xx_LOG_PREFIX ": " format "\n" , ## arg)
 
+#ifdef CONFIG_DVB_STBx25xx_AV
+
 /* video MPEG decoder events: */
 /* (code copied from dvb_frontend.c, should maybe be factored out...) */
 #define MAX_VIDEO_EVENT 8
@@ -145,6 +147,8 @@ struct stbx25xx_audio_data {
 	struct stbx25xx_clip_dev mixer;
 };
 
+#endif
+
 struct stbx25xx_demux_data {
 	/* Demux */
 	struct dvb_demux 	demux;
@@ -193,8 +197,10 @@ struct stbx25xx_dvb_data {
 	struct dvb_net 		dvbnet;
 	
 	/* Private data of driver modules */
+#ifdef CONFIG_DVB_STBx25xx_AV
 	struct stbx25xx_video_data	video;
 	struct stbx25xx_audio_data	audio;
+#endif
 	struct stbx25xx_demux_data	demux;
 };
 
@@ -209,7 +215,8 @@ extern int stbx25xx_demux_get_stc(struct dmx_demux* demux, unsigned int num,
 extern void stbx25xx_demux_before_after_tune(fe_status_t fe_status, void *data);
 extern int stbx25xx_demux_start_feed(struct dvb_demux_feed *feed);
 extern int stbx25xx_demux_stop_feed(struct dvb_demux_feed *feed);
-				 
+
+#ifdef CONFIG_DVB_STBx25xx_AV
 extern ssize_t stbx25xx_video_write(struct file *file, const char *buf, size_t count, loff_t *ppos);
 extern int stbx25xx_video_open(struct inode *inode, struct file *file);
 extern int stbx25xx_video_release(struct inode *inode, struct file *file);
@@ -225,17 +232,26 @@ extern int stbx25xx_audio_release(struct inode *inode, struct file *file);
 extern unsigned int stbx25xx_audio_poll(struct file *file, poll_table *wait);
 extern int stbx25xx_audio_ioctl(struct inode *inode, struct file *file, unsigned int cmd, void *parg);
 extern void stbx25xx_audio_sync_stc(u32 stcl, u32 stch);
+#endif
  
+#ifdef CONFIG_DVB_STBx25xx_AV
 extern int stbx25xx_video_init(struct stbx25xx_dvb_data *);
 extern int stbx25xx_audio_init(struct stbx25xx_dvb_data *);
+#endif
 extern int stbx25xx_demux_init(struct stbx25xx_dvb_data *);
 extern int stbx25xx_frontend_init(struct stbx25xx_dvb_data *);
+#ifdef CONFIG_DVB_STBx25xx_OSD
 extern int stbx25xx_osd_init(struct stbx25xx_dvb_data *);
+#endif
 
+#ifdef CONFIG_DVB_STBx25xx_AV
 extern void stbx25xx_video_exit(struct stbx25xx_dvb_data *);
 extern void stbx25xx_audio_exit(struct stbx25xx_dvb_data *);
+#endif
 extern void stbx25xx_demux_exit(struct stbx25xx_dvb_data *);
 extern void stbx25xx_frontend_exit(struct stbx25xx_dvb_data *);
+#ifdef CONFIG_DVB_STBx25xx_OSD
 extern void stbx25xx_osd_exit(struct stbx25xx_dvb_data *);
+#endif
 
 #endif

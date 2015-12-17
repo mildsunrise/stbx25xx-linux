@@ -147,6 +147,7 @@ static void stbx25xx_dvb_exit(struct stbx25xx_dvb_data *dvb)
 	deb_info("deinitialized dvb stuff\n");
 }
 
+#ifdef CONFIG_DVB_STBx25xx_AV
 /**
 	DVB Audio/Video Setup
 */
@@ -214,6 +215,7 @@ static void stbx25xx_dvb_av_exit(struct stbx25xx_dvb_data *dev)
 	dvb_unregister_device(dev->audio.audio);
 	dvb_unregister_device(dev->video.video);
 }
+#endif
 
 /**
 	Driver Setup
@@ -287,6 +289,7 @@ static int stbx25xx_adapter_probe(struct of_device *dev, const struct of_device_
 		goto video_error;
 	}
 	
+#ifdef CONFIG_DVB_STBx25xx_AV
 	if ((ret = stbx25xx_video_init(dvb))) {
 		err("Video initiailzation failed: error %d", ret);
 		goto video_error;
@@ -296,6 +299,7 @@ static int stbx25xx_adapter_probe(struct of_device *dev, const struct of_device_
 		err("Audio initialization failed: error %d", ret);
 		goto audio_error;
 	}
+#endif
 	
 	if ((ret = stbx25xx_demux_init(dvb))) {
 		err("Demux initialization failed: error %d", ret);
@@ -307,10 +311,12 @@ static int stbx25xx_adapter_probe(struct of_device *dev, const struct of_device_
 		goto dvb_error;
 	}
 	
+#ifdef CONFIG_DVB_STBx25xx_AV
 	if ((ret = stbx25xx_dvb_av_init(dvb))) {
 		err("DVB A/V initialization failed: error %d", ret);
 		goto dvb_av_error;
 	}
+#endif
 
 	if ((ret = stbx25xx_frontend_init(dvb))) {
 		err("Front-end initialization failed: error %d", ret);
@@ -322,15 +328,19 @@ static int stbx25xx_adapter_probe(struct of_device *dev, const struct of_device_
 	return 0;
 
 frontend_error:
+#ifdef CONFIG_DVB_STBx25xx_AV
 	stbx25xx_dvb_av_exit(dvb);
 dvb_av_error:
+#endif
 	stbx25xx_dvb_exit(dvb);
 dvb_error:	
 	stbx25xx_demux_exit(dvb);
 demux_error:
+#ifdef CONFIG_DVB_STBx25xx_AV
 	stbx25xx_audio_exit(dvb);
 audio_error:
 	stbx25xx_video_exit(dvb);	
+#endif
 video_error:
 	kfree(dvb);
 	return ret;
@@ -341,11 +351,15 @@ static int stbx25xx_adapter_remove(struct of_device *dev)
 	struct stbx25xx_dvb_data *dvb = platform_get_drvdata(dev);
 	
 	stbx25xx_frontend_exit(dvb);
+#ifdef CONFIG_DVB_STBx25xx_AV
 	stbx25xx_dvb_av_exit(dvb);
+#endif
 	stbx25xx_dvb_exit(dvb);
 	stbx25xx_demux_exit(dvb);
+#ifdef CONFIG_DVB_STBx25xx_AV
 	stbx25xx_audio_exit(dvb);
 	stbx25xx_video_exit(dvb);
+#endif
 	stbx25xx_procfs_exit();
 	
 	kfree(dvb);

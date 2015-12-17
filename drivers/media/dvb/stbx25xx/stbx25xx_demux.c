@@ -1810,12 +1810,14 @@ static void demux_sync_av(struct stbx25xx_demux_data *dmx, int irq)
 	if(demux_get_stc_for_sync(&stc_high))
 		return;
 	
+#ifdef CONFIG_DVB_STBx25xx_AV
 	info("Updating A/V STC with PCR 0x%08x0", stc_high);
 	
 	stbx25xx_audio_sync_stc(0, stc_high + DECODER_SHIFT);
 	stbx25xx_video_sync_stc(0, stc_high + DECODER_SHIFT);
 	
 //	printk("Video sync => %d\n", stc_high);
+#endif
 }
 
 /*
