@@ -21,6 +21,9 @@
 #include <asm/time.h>
 #include <asm/udbg.h>
 #include <asm/uic.h>
+#include <asm/dcr.h>
+#include <asm/dcr-regs.h>
+#include <asm/reg.h>
 
 #include <linux/init.h>
 #include <linux/of_platform.h>
@@ -71,12 +74,20 @@ static int __init dm500_probe(void)
 	return 1;
 }
 
+/* The original ppc4xx_reset_system applies a system
+   reset, that doesn't work. */
+void dm500_reset_system(char *cmd)
+{
+	mtspr(SPRN_DBCR0, mfspr(SPRN_DBCR0) | DBCR0_RST_CHIP);
+	while (1) ; /* Just in case the reset doesn't work */
+}
+
 define_machine(dm500) {
 	.name = "Dreambox DM500",
 	.probe = dm500_probe,
 	.progress = udbg_progress,
 	.init_IRQ = uic_init_tree,
 	.get_irq = uic_get_irq,
-	.restart = ppc4xx_reset_system,
+	.restart = dm500_reset_system,
 	.calibrate_decr = generic_calibrate_decr,
 };
