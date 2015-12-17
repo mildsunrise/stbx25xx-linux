@@ -124,6 +124,13 @@
 			ranges = <0 0 0xf2000000 0x1000>; /* FIXME */
 			clock-frequency = <63000000>; /* Filled in by zImage */
 
+			ethernet@0,600 {
+				compatible = "novell,ne2000";
+				reg = <0 0x600 0x40>;
+				interrupt-parent = <&UIC0>;
+				interrupts = <25 8>;
+			};
+
 		};
 	};
 

@@ -110,8 +110,13 @@ struct ei_device {
 #define E8390_RXOFF		0x20	/* EN0_RXCR: Accept no packets */
 #endif
 
+#if defined(CONFIG_DM500)
+#define E8390_TXCONFIG		0x80	/* EN0_TXCR: Normal transmit mode */
+#define E8390_TXOFF		0x02	/* EN0_TXCR: Transmitter off */
+#else
 #define E8390_TXCONFIG		0x00	/* EN0_TXCR: Normal transmit mode */
 #define E8390_TXOFF		0x02	/* EN0_TXCR: Transmitter off */
+#endif
 
 
 /*  Register accessed at EN_CMD, the 8390 base addr.  */
@@ -131,6 +136,46 @@ struct ei_device {
  *	- the _p for generates no delay by default 8390p.c overrides this.
  */
 
+#if defined(CONFIG_DM500)
+#define ei_inb(port)               (inw((port)) >> 8)
+#define ei_outb(val,port)          (outw((val) << 8, (port)))
+#define ei_inb_p(port)             (inw((port)) >> 8)
+#define ei_outb_p(val,port)        (outw((val) << 8, (port)))
+static __inline__ void ei_insb(long unsigned int *port, void *buf, int ns)
+{
+        int i;
+        for (i = 0; i < ns; i++)
+                ((u8 *)buf)[i] = ei_inb(port);
+}
+static __inline__ void ei_insw(long unsigned int *port, void *buf, int ns)
+{
+        int i;
+        for (i = 0; i < ns; i++)
+                ((u16 *)buf)[i] = inw(port);
+}
+static __inline__ void ei_outsb(long unsigned int *port, const void *buf, int ns)
+{
+        int i;
+        for (i = 0; i < ns; i++)
+                ei_outb(((const u8 *)buf)[i], port);
+}
+static __inline__ void ei_outsw(long unsigned int *port, const void *buf, int ns)
+{
+        int i;
+        for (i = 0; i < ns; i++)
+                outw(((const u16 *)buf)[i], port);
+}
+
+#define inb(_p)		ei_inb(_p)
+#define outb(_v, _p)	ei_outb(_v, _p)
+#define inb_p(_p)	ei_inb_p(_p)
+#define outb_p(_v, _p)	ei_outb_p(_v, _p)
+#define insb(_p, _b, _n)	ei_insb(_p, _b, _n)
+#define insw(_p, _b, _n)	ei_insw(_p, _b, _n)
+#define outsb(_p, _b, _n)	ei_outsb(_p, _b, _n)
+#define outsw(_p, _b, _n)	ei_outsw(_p, _b, _n)
+#endif
+
 #ifndef ei_inb
 #define ei_inb(_p)	inb(_p)
 #define ei_outb(_v,_p)	outb(_v,_p)
@@ -139,7 +184,11 @@ struct ei_device {
 #endif
 
 #ifndef EI_SHIFT
+#if defined(CONFIG_DM500)
+#define EI_SHIFT(x)	(2 * (x))
+#else
 #define EI_SHIFT(x)	(x)
+#endif
 #endif
 
 #define E8390_CMD	EI_SHIFT(0x00)  /* The command register (for all pages) */

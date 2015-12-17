@@ -1178,7 +1178,7 @@ config ETH16I
 
 config NE2000
 	tristate "NE2000/NE1000 support"
-	depends on NET_ISA || (Q40 && m) || M32R || MACH_TX49XX
+	depends on NET_ISA || (Q40 && m) || M32R || MACH_TX49XX || DM500
 	select CRC32
 	---help---
 	  If you have a network (Ethernet) card of this type, say Y and read

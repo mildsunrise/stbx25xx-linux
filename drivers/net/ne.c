@@ -56,6 +56,10 @@ static const char version2[] =
 #include <asm/system.h>
 #include <asm/io.h>
 
+#if defined(CONFIG_DM500)
+#include <asm/dcr-native.h>
+#endif
+
 #include "8390.h"
 
 #define DRV_NAME "ne"
@@ -297,6 +301,9 @@ static int __init ne_probe1(struct net_device *dev, unsigned long ioaddr)
 	int neX000, ctron, copam, bad_card;
 	int reg0, ret;
 	static unsigned version_printed;
+#if defined(CONFIG_DM500)
+	unsigned char dev_addr[6];
+#endif
 	DECLARE_MAC_BUF(mac);
 
 	if (!request_region(ioaddr, NE_IO_EXTENT, DRV_NAME))
@@ -338,6 +345,8 @@ static int __init ne_probe1(struct net_device *dev, unsigned long ioaddr)
 	bad_card = ((dev->base_addr != 0) && (dev->mem_end == BAD));
 
 	/* Reset card. Who knows what dain-bramaged state it was left in. */
+
+	outb_p(E8390_NODMA+E8390_PAGE0, ioaddr + E8390_CMD);
 
 	{
 		unsigned long reset_start_time = jiffies;
@@ -471,6 +480,15 @@ static int __init ne_probe1(struct net_device *dev, unsigned long ioaddr)
 #endif
 	}
 
+#if defined(CONFIG_DM500)
+	mtdcr(0x44, mfdcr(0x44) | 0x40);
+
+	unsigned char *hw_addr=(unsigned char*) ioremap(0x7fffffc0,PAGE_SIZE);
+	mtdcr(0x82,0xFF00BFFE);
+	memcpy(dev_addr, hw_addr+7, 6);
+	iounmap((void*)hw_addr);
+#endif
+
 	if (dev->irq < 2)
 	{
 		unsigned long cookie = probe_irq_on();
@@ -510,6 +528,10 @@ static int __init ne_probe1(struct net_device *dev, unsigned long ioaddr)
 	for (i = 0 ; i < ETHER_ADDR_LEN ; i++) {
 		dev->dev_addr[i] = SA_prom[i]
 			= inb_p(ioaddr + EN1_PHYS_SHIFT(i));
+	}
+#elif defined(CONFIG_DM500)
+	for(i = 0; i < ETHER_ADDR_LEN; i++) {
+		dev->dev_addr[i] = dev_addr[i];
 	}
 #else
 	for(i = 0; i < ETHER_ADDR_LEN; i++) {

@@ -35,9 +35,25 @@ static __initdata struct of_device_id dm500_of_bus[] = {
 	{},
 };
 
+struct resource ne2000_resources[] = {
+        [0] = { .flags  = IORESOURCE_IO },
+        [1] = { .flags  = IORESOURCE_IRQ },
+};
+
 static int __init dm500_device_probe(void)
 {
+	struct device_node *np;
+
 	of_platform_bus_probe(NULL, dm500_of_bus, NULL);
+
+	/* Pass parameters to NE2000 driver */
+	if ((np = of_find_compatible_node(NULL, NULL, "novell,ne2000"))) {
+		ne2000_resources[0].start = of_iomap(np, 0);
+		ne2000_resources[0].end = ne2000_resources[0].start + 0x3f;
+		ne2000_resources[1].start = irq_of_parse_and_map(np, 0);
+		of_node_put(np);
+		platform_device_register_simple("ne", -1, ne2000_resources, ARRAY_SIZE(ne2000_resources));
+	}
 
 	return 0;
 }

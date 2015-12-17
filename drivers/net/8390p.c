@@ -3,11 +3,6 @@
 static const char version[] =
     "8390p.c:v1.10cvs 9/23/94 Donald Becker (becker@cesdis.gsfc.nasa.gov)\n";
 
-#define ei_inb(_p)	inb(_p)
-#define ei_outb(_v, _p)	outb(_v, _p)
-#define ei_inb_p(_p)	inb_p(_p)
-#define ei_outb_p(_v, _p) outb_p(_v, _p)
-
 #include "lib8390.c"
 
 int eip_open(struct net_device *dev)
