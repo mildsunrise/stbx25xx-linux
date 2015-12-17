@@ -1012,8 +1012,8 @@ static void demux_get_data(struct work_struct *work)
 		data_avl = write_ptr - read_ptr;
 		data_avl2 = 0;
 	} else {
-		data_avl2 = (write_ptr - queue->phys_addr);
-		data_avl = (queue->phys_addr + queue->size - read_ptr);
+		data_avl2 = write_ptr - (queue->phys_addr & 0xFFFFFF);
+		data_avl = ((queue->phys_addr + queue->size) & 0xFFFFFF) - read_ptr;
 	}
 
 	/* Check if there is data ready in the queue */
