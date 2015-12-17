@@ -148,7 +148,7 @@ dtc-objs := $(addprefix dtc-src/, $(dtc-objs))
 $(obj)/dtc-src/dtc-parser.tab.o: $(obj)/dtc-src/dtc-parser.tab.c $(obj)/dtc-src/dtc-parser.tab.h
 $(obj)/dtc-src/dtc-lexer.lex.o:  $(obj)/dtc-src/dtc-lexer.lex.c $(obj)/dtc-src/dtc-parser.tab.h
 
-HOSTCFLAGS += -I$(src)/dtc-src/ -I$(src)/libfdt/
+HOST_EXTRACFLAGS += -I$(src)/dtc-src/ -I$(src)/libfdt/
 
 targets += dtc-src/dtc-parser.tab.c
 targets += dtc-src/dtc-lexer.lex.c

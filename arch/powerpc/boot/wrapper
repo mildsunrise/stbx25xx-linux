@@ -21,6 +21,10 @@
 #		(default ./arch/powerpc/boot)
 # -W dir	specify working directory for temporary files (default .)
 
+# Make sure the output of commands such as objdump
+# is not translated so we parse it correctly
+LANG=C LANGUAGE=C LC_ALL=en
+
 # Stop execution if any command fails
 set -e
 

@@ -152,10 +152,10 @@ bad_clone_list[] __initdata = {
 /* ---- No user-serviceable parts below ---- */
 
 #define NE_BASE	 (dev->base_addr)
-#define NE_CMD	 	0x00
-#define NE_DATAPORT	0x10	/* NatSemi-defined port window offset. */
-#define NE_RESET	0x1f	/* Issue a read to reset, a write to clear. */
-#define NE_IO_EXTENT	0x20
+#define NE_CMD	 	EI_SHIFT(0x00)
+#define NE_DATAPORT	EI_SHIFT(0x10)	/* NatSemi-defined port window offset. */
+#define NE_RESET	EI_SHIFT(0x1f)	/* Issue a read to reset, a write to clear. */
+#define NE_IO_EXTENT	EI_SHIFT(0x20)
 
 #define NE1SM_START_PG	0x20	/* First page of TX buffer */
 #define NE1SM_STOP_PG 	0x40	/* Last page +1 of RX ring */
@@ -312,13 +312,13 @@ static int __init ne_probe1(struct net_device *dev, unsigned long ioaddr)
 	{
 		int regd;
 		outb_p(E8390_NODMA+E8390_PAGE1+E8390_STOP, ioaddr + E8390_CMD);
-		regd = inb_p(ioaddr + 0x0d);
-		outb_p(0xff, ioaddr + 0x0d);
+		regd = inb_p(ioaddr + EI_SHIFT(0x0d));
+		outb_p(0xff, ioaddr + EI_SHIFT(0x0d));
 		outb_p(E8390_NODMA+E8390_PAGE0, ioaddr + E8390_CMD);
 		inb_p(ioaddr + EN0_COUNTER0); /* Clear the counter by reading. */
 		if (inb_p(ioaddr + EN0_COUNTER0) != 0) {
 			outb_p(reg0, ioaddr);
-			outb_p(regd, ioaddr + 0x0d);	/* Restore the old values. */
+			outb_p(regd, ioaddr + EI_SHIFT(0x0d));	/* Restore the old values. */
 			ret = -ENODEV;
 			goto err_out;
 		}
