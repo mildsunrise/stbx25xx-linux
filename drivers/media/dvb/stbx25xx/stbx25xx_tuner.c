@@ -21,9 +21,221 @@
 
 #include "stbx25xx_common.h"
 #include "stx0288.h"
+#include "stv0299.h"
 #include "ix2476.h"
 #include <linux/i2c.h>
 #include <linux/gpio.h>
+
+static u8 dm500_inittab[] = {
+	0x01, 0x15,
+	0x02, 0x30,
+	0x03, 0x00,
+	0x04, 0x7d,
+	0x05, 0x05,
+	0x06, 0x00,
+	0x07, 0x00,
+	0x08, 0x00,
+	0x09, 0x00,
+
+	0x0c, 0xf0,
+	0x0d, 0x82,
+	0x0e, 0x44,
+	0x0f, 0x92,
+	0x10, 0x34,
+	0x11, 0x84,
+	0x12, 0xb9,
+	0x13, 0x97,
+	0x14, 0x95,
+	0x15, 0xc9,
+	0x16, 0x19,
+
+	0x18, 0x00,
+	0x19, 0x00,
+	0x1a, 0x00,
+
+	0x1c, 0x00,
+	0x1d, 0x00,
+	0x1e, 0x00,
+	0x1f, 0x50,
+	0x20, 0x00,
+	0x21, 0x00,
+	0x22, 0x00,
+	0x23, 0x00,
+
+	0x27, 0x00,
+	0x28, 0x00,
+	0x29, 0x28,
+	0x2a, 0x14,
+	0x2b, 0x0f,
+	0x2c, 0x09,
+	0x2d, 0x05,
+	0x2e, 0x00,
+	0x2f, 0x00,
+	0x30, 0x00,
+	0x31, 0x1f,
+	0x32, 0x19,
+	0x33, 0xfc,
+	0x34, 0x13,
+	0x35, 0x00,
+	0x36, 0x00,
+	0x37, 0x00,
+	0x38, 0x00,
+	0x39, 0x00,
+	0x3a, 0x00,
+	0x3b, 0x00,
+	0x3c, 0x00,
+	0x3d, 0x00,
+	0x3e, 0x00,
+	0x3f, 0x00,
+	0x40, 0x00,
+	0x41, 0x00,
+	0x42, 0x00,
+	0x43, 0x00,
+	0x44, 0x00,
+	0x45, 0x00,
+	0x46, 0x00,
+	0x47, 0x00,
+	0x48, 0x00,
+	0x49, 0x00,
+	0x4a, 0x00,
+	0x4b, 0x00,
+	0x4c, 0x00,
+	0x4d, 0x00,
+	0x4e, 0x00,
+
+	0xff, 0xff,
+};
+
+static int dm500_set_symbol_rate(struct dvb_frontend *fe, u32 srate, u32 ratio)
+{
+	stv0299_writereg(fe, 0x1a, 0x00);
+	stv0299_writereg(fe, 0x13, 0xb6);
+	stv0299_writereg(fe, 0x14, 0x53);
+
+	return (stv0299_writereg(fe, 0x1f, (ratio >> 16) & 0xff) ||
+		stv0299_writereg(fe, 0x20, (ratio >>  8) & 0xff) ||
+		stv0299_writereg(fe, 0x21, (ratio >>  0) & 0xff))
+		? -EREMOTEIO : 0;
+}
+
+static struct stv0299_config dm500_config = {
+	.demod_address = 0x68,
+	.inittab = dm500_inittab,
+	.mclk = 88000000UL,
+	.invert = 0,
+	.skip_reinit = 0,
+	.op0_off = 0,
+	.lock_output = 0, // FIXME
+	.min_delay_ms = 100, //
+	.set_symbol_rate = dm500_set_symbol_rate, //
+	.set_ts_params = NULL, //
+};
+
+static int dm500_set_voltage(struct dvb_frontend *fe, fe_sec_voltage_t voltage)
+{
+	switch(voltage) {
+		case SEC_VOLTAGE_OFF:
+			info("SEC_VOLTAGE_OFF");
+			gpio_set_value(227, 0);
+			msleep(20);
+			break;
+		case SEC_VOLTAGE_18:
+			info("SEC_VOLTAGE_18");
+			gpio_set_value(227, 1);
+			gpio_set_value(231, 0);
+			msleep(20);
+			break;
+		case SEC_VOLTAGE_13:
+			info("SEC_VOLTAGE_13");
+			gpio_set_value(227, 1);
+			gpio_set_value(231, 1);
+			msleep(20);
+			break;
+	}
+
+	return 0;
+}
+
+struct dm500_tuner_priv {
+	struct i2c_adapter *i2c;
+	u32 frequency;
+};
+
+static int dm500_tuner_release(struct dvb_frontend *fe)
+{
+	kfree(fe->tuner_priv);
+	fe->tuner_priv = NULL;
+	return 0;
+}
+
+static int dm500_tuner_sleep(struct dvb_frontend *fe)
+{
+	printk("%s: not implemented\n", __func__);
+	return 0;
+}
+
+static int dm500_tuner_set_params(struct dvb_frontend *fe,
+				struct dvb_frontend_parameters *params)
+{
+        struct dm500_tuner_priv *priv = fe->tuner_priv;
+	u8 buf [4];
+	struct i2c_msg msg = { .addr = 0x61, .flags = 0, .buf = buf, .len = 4 };
+
+	priv->frequency = (params->frequency + 500) / 1000;
+	buf[0] = priv->frequency >> 8;
+	buf[1] = priv->frequency & 0xFF;
+	buf[2] = 0x81;
+	buf[3] = 0xE0;
+
+	return i2c_transfer(priv->i2c, &msg, 1);
+}
+
+static int dm500_tuner_get_frequency(struct dvb_frontend *fe, u32 *frequency)
+{
+        struct dm500_tuner_priv *priv = fe->tuner_priv;
+        *frequency = priv->frequency * 1000;
+        return 0;
+}
+
+static int dm500_tuner_get_status(struct dvb_frontend *fe, u32 *status)
+{
+	//FIXME
+	*status = 0;
+	return 0;
+}
+
+//FIXME: switch to simple-plb if possible
+static struct dvb_tuner_ops dm500_tuner_ops = {
+	.info = {
+		.name = "Sharp IX2476",
+		.frequency_min = 950000,
+		.frequency_max = 2150000
+	},
+	.release = dm500_tuner_release,
+	.sleep = dm500_tuner_sleep,
+	.set_params = dm500_tuner_set_params,
+	.get_frequency = dm500_tuner_get_frequency,
+	.get_status = dm500_tuner_get_status,
+};
+
+static struct dvb_frontend *dm500_tuner_attach(struct dvb_frontend *fe, struct i2c_adapter *i2c)
+{
+	struct dm500_tuner_priv *priv;
+
+	priv = kmalloc(sizeof(struct dm500_tuner_priv), GFP_KERNEL);
+	if (priv == NULL)
+		return NULL;
+
+	priv->i2c = i2c;
+	priv->frequency = 0;
+
+	memcpy(&fe->ops.tuner_ops, &dm500_tuner_ops,
+				sizeof(struct dvb_tuner_ops));
+
+	fe->tuner_priv = priv;
+
+	return fe;
+}
 
 static u8 stx0288_inittab[] = {
 	0x00, 0x00,
@@ -329,9 +541,11 @@ int stbx25xx_frontend_init(struct stbx25xx_dvb_data *dvb)
 {
 	int ret;
 	
+#if !defined(CONFIG_DM500)
 	gpio_direction_output(228, 1);
 	
 	stx0288_reset();
+#endif
 
 	dvb->i2c = i2c_get_adapter(0);
 	if(!dvb->i2c) {
@@ -340,12 +554,21 @@ int stbx25xx_frontend_init(struct stbx25xx_dvb_data *dvb)
 	}
 	
 	if (!dvb->fe) {
+#if defined(CONFIG_DM500)
+		//FIXME: move to platform code
+		dvb->fe = dvb_attach(stv0299_attach, &dm500_config, dvb->i2c);
+		if (dvb->fe) {
+			dvb->fe->ops.set_voltage = dm500_set_voltage;
+			dm500_tuner_attach(dvb->fe, dvb->i2c);
+		}
+#else
 		dvb->fe = dvb_attach(stx0288_attach, &tm9101_config, dvb->i2c);
 		if (dvb->fe) {
 			dvb->fe->ops.set_voltage = tm9101_set_voltage;
 			dvb_attach(ix2476_attach, dvb->fe, 0x60,
 					dvb->i2c);
 		}
+#endif
 	}
 
 	if (!dvb->fe) {

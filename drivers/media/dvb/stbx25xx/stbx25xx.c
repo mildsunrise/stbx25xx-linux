@@ -20,7 +20,6 @@
 
 #include <linux/gpio.h>
 #include <linux/of_platform.h>
-#include <asm/tm9101.h>
 #include "stbx25xx.h"
 
 
@@ -262,10 +261,12 @@ static int stbx25xx_adapter_probe(struct of_device *dev, const struct of_device_
 	
 	printk(KERN_INFO "--- STBx25xx Digital Video Broadcasting drivers ---\n");
 
-	if (board_is_tm9101()) {
-		request_module("ix2476");
-		request_module("stx0288");
-	}
+#if defined(CONFIG_TM9101)
+	request_module("ix2476");
+	request_module("stx0288");
+#elif defined(CONFIG_DM500)
+	request_module("stv0299");
+#endif
 	
 	dvb = kmalloc(sizeof(struct stbx25xx_dvb_data), GFP_KERNEL);
 	if(dvb == NULL)

@@ -113,7 +113,13 @@
 				compatible = "ibm,ppc4xx-gpio";
 				reg = <0x60000 0x20>;
 			};
-			
+
+		};
+
+		dvb@0 {
+			compatible = "ibm,stbx25xx-dvb";
+			interrupt-parent = <&UIC0>;
+			interrupts = <1 4 2 4 3 4 23 4>;
 		};
 
 		EBC0: ebc {

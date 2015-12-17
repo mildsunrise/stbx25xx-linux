@@ -29,8 +29,13 @@
 #define DEMUX_IRQ_STR_FOUND	14
 
 /* Memory map */
+#if defined(CONFIG_DM500)
+#define DEMUX_QUEUES_BASE	0xA0800000
+#define DEMUX_QUEUES_SIZE	0x00200000
+#else
 #define DEMUX_QUEUES_BASE	0x03C00000	/* Allocable region begins at 60 MB */
 #define DEMUX_QUEUES_SIZE	0x00200000	/* Allocable region ends before 62 MB */
+#endif
 
 #define DEMUX_QUEUE_BLOCK_SHFT	12
 #define DEMUX_QUEUE_BLOCK_SIZE	(1 << 12)	/* 4096 bytes per block */
