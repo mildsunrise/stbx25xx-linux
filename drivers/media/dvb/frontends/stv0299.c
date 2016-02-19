@@ -681,7 +681,7 @@ struct dvb_frontend* stv0299_attach(const struct stv0299_config* config,
 
 	/* check if the demod is there */
 #ifdef CONFIG_DM500
-	stv0299_writeregI(state, 0x02, 0x34); /* standby off */
+	stv0299_writeregI(state, 0x02, 0x30); /* standby off */
 #else
 	stv0299_writeregI(state, 0x02, 0x34); /* standby off */
 #endif
@@ -691,7 +691,7 @@ struct dvb_frontend* stv0299_attach(const struct stv0299_config* config,
 	/* register 0x00 contains 0xa1 for STV0299 and STV0299B */
 	/* register 0x00 might contain 0x80 when returning from standby */
 #ifdef CONFIG_DM500
-	if (id != 0xa1 && id != 0x80) goto error;
+	if (id != 0xa1 && id != 0x8f) goto error;
 #else
 	if (id != 0xa1 && id != 0x80) goto error;
 #endif
