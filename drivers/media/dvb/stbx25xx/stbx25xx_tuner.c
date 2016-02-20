@@ -593,9 +593,14 @@ int stbx25xx_frontend_init(struct stbx25xx_dvb_data *dvb)
 		dvb->fe = NULL;
 		return ret;
 	}
-	
+
+#if defined(CONFIG_DM500)
+        gpio_direction_output(227, 1);
+        gpio_direction_output(231, 1);
+#else
 	gpio_direction_output(231, 1);
-	gpio_direction_output(229, 0);
+	gpio_direction_output(229, 1);
+#endif
 
 	return 0;
 }
