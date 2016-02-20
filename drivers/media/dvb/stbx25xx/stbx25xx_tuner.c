@@ -237,6 +237,14 @@ static struct dvb_frontend *dm500_tuner_attach(struct dvb_frontend *fe, struct i
 	return fe;
 }
 
+static void dm500_stv0299_reset(void)
+{
+	gpio_set_value(238, 0);
+	msleep(2);
+	gpio_set_value(238, 1);
+	msleep(20);
+}
+
 static u8 stx0288_inittab[] = {
 	0x00, 0x00,
 	0x01, 0x15,
@@ -541,9 +549,11 @@ int stbx25xx_frontend_init(struct stbx25xx_dvb_data *dvb)
 {
 	int ret;
 	
-#if !defined(CONFIG_DM500)
+#if defined(CONFIG_DM500)
+	gpio_direction_output(238, 1);
+	dm500_stv0299_reset();
+#else
 	gpio_direction_output(228, 1);
-	
 	stx0288_reset();
 #endif
 
