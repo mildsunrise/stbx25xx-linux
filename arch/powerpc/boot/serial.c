@@ -44,7 +44,7 @@ static void serial_edit_cmdline(char *buf, int len)
 	cp = &buf[count];
 	count++;
 
-	while (timer++ < 5*1000) {
+	while (timer++ < 1*1000) {
 		if (scdp->tstc()) {
 			while (((ch = scdp->getc()) != '\n') && (ch != '\r')) {
 				/* Test for backspace/delete */
