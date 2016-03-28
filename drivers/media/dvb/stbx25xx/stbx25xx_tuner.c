@@ -187,6 +187,7 @@ static int dm500_tuner_set_params(struct dvb_frontend *fe,
 	buf[2] = 0x81;
 	buf[3] = 0xE0;
 
+	fe->ops.i2c_gate_ctrl(fe, 1);
 	return i2c_transfer(priv->i2c, &msg, 1);
 }
 
