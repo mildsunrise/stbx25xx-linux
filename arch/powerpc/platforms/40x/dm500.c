@@ -27,9 +27,26 @@
 
 #include <linux/init.h>
 #include <linux/of_platform.h>
+#include <linux/leds.h>
 
 int _board_is_dm500 = 0;
 EXPORT_SYMBOL(_board_is_dm500);
+
+static struct gpio_led dm500_leds[] = {
+        { .gpio = DM500_GPIO_LED_GREEN, .name = "green", .default_trigger = "default-on" },
+        { .gpio = DM500_GPIO_LED_RED, .name = "red" },
+};
+
+static struct gpio_led_platform_data dm500_leds_data = {
+        .leds = dm500_leds,
+        .num_leds = ARRAY_SIZE(dm500_leds),
+};
+
+static struct platform_device dm500_leds_device = {
+        .name = "leds-gpio",
+        .id = 0,
+        .dev.platform_data = &dm500_leds_data,
+};
 
 static __initdata struct of_device_id dm500_of_bus[] = {
 	{ .compatible = "ibm,plb3", },
@@ -48,6 +65,9 @@ static int __init dm500_device_probe(void)
 	struct device_node *np;
 
 	of_platform_bus_probe(NULL, dm500_of_bus, NULL);
+
+	/* Register LEDs */
+	platform_device_register(&dm500_leds_device);
 
 	/* Pass parameters to NE2000 driver */
 	if ((np = of_find_compatible_node(NULL, NULL, "novell,ne2000"))) {
