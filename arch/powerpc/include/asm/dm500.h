@@ -29,8 +29,10 @@
 #define PPC4xx_GPIO_BASE	224
 #define DM500_GPIO_LED_GREEN	224
 #define DM500_GPIO_LED_RED	225
+#define DM500_GPIO_BTN_STANDBY	226
 #define DM500_GPIO_FE_LNB	227
 #define DM500_GPIO_FE_13V	231
+#define DM500_GPIO_FE_RESET     238
 
 extern int _board_is_dm500;
 
