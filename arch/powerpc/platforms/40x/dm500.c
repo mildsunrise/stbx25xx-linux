@@ -27,6 +27,7 @@
 
 #include <linux/init.h>
 #include <linux/of_platform.h>
+#include <linux/gpio.h>
 #include <linux/leds.h>
 
 int _board_is_dm500 = 0;
@@ -65,6 +66,10 @@ static int __init dm500_device_probe(void)
 	struct device_node *np;
 
 	of_platform_bus_probe(NULL, dm500_of_bus, NULL);
+
+	/* Enable flash VPP (FIXME: proper mapper would be better) */
+	gpio_direction_output(DM500_GPIO_FLASH_VPP, 1);
+	gpio_set_value(DM500_GPIO_FLASH_VPP, 1);
 
 	/* Register LEDs */
 	platform_device_register(&dm500_leds_device);

@@ -32,6 +32,7 @@
 #define DM500_GPIO_BTN_STANDBY	226
 #define DM500_GPIO_FE_LNB	227
 #define DM500_GPIO_FE_13V	231
+#define DM500_GPIO_FLASH_VPP	236
 #define DM500_GPIO_FE_RESET     238
 
 extern int _board_is_dm500;
