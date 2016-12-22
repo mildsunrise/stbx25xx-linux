@@ -116,6 +116,46 @@
 
 		};
 
+		flash@7f800000 {
+			compatible = "cfi-flash";
+			reg = <0x7f800000 0x00800000>;
+			bank-width = <2>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+			/* FIXME: Vpp switching! */
+
+			fw@0 { /* Convenience partition. */
+				reg = <0x000000 0x600000>;
+				label = "DreamBOX CramFS + SquashFS";
+			};
+			jffs@600000 {
+				reg = <0x600000 0x1c0000>;
+				label = "JFFS2";
+			};
+			bios@7c0000 {
+				reg = <0x7c0000 0x040000>;
+				label = "OpenBIOS";
+				read-only;
+			};
+			fwrw@0 { /* Convenience partition. */
+				reg = <0x000000 0x7c0000>;
+				label = "DreamBOX CramFS + SquashFS + JFFS2";
+			};
+			all@0 { /* Convenience partition. */
+				reg = <0x000000 0x800000>;
+				label = "DreamBOX (with bootloader)";
+				read-only;
+			};
+			squashfs@120000 {
+				reg = <0x120000 0x4e0000>;
+				label = "SquashFS";
+			};
+			cramfs@0 {
+				reg = <0x000000 0x120000>;
+				label = "CramFS";
+			};
+		};
+
 		dvb@0 {
 			compatible = "ibm,stbx25xx-dvb";
 			interrupt-parent = <&UIC0>;
